@@ -1,0 +1,95 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <Import Condition="Exists('$(SolutionDir)\KSPDevPath.xml')" Project="$(SolutionDir)\KSPDevPath.xml" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{2B477258-FAB7-4C9C-B224-1BDE6B6A7081}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>EasyRobotics</RootNamespace>
+    <AssemblyName>EasyRobotics</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <PlatformTarget>x64</PlatformTarget>
+    <StartAction>Program</StartAction>
+    <StartProgram>$(KSPInstallPath)\KSP_x64.exe</StartProgram>
+    <StartWorkingDirectory>$(KSPInstallPath)</StartWorkingDirectory>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>portable</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(KSPInstallPath)\KSP_x64_Data\Managed\System.dll">
+      <Name>System (KSP/Mono)</Name>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(KSPInstallPath)\KSP_x64_Data\Managed\mscorlib.dll">
+      <Name>System.Core (KSP/Mono)</Name>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(KSPInstallPath)\KSP_x64_Data\Managed\UnityEngine*.dll">
+      <Name>UnityEngine</Name>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(KSPInstallPath)\KSP_x64_Data\Managed\Assembly-CSharp.dll">
+      <Name>Assembly-CSharp</Name>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(KSPInstallPath)\KSP_x64_Data\Managed\Assembly-CSharp-firstpass.dll">
+      <Name>Assembly-CSharp-firstpass</Name>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="DrawTools.cs" />
+    <Compile Include="IKJoint.cs" />
+    <Compile Include="ModuleEasyRobotics.cs" />
+    <Compile Include="ModuleEasyRobotics2.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="AfterBuild">
+    <CallTarget Condition="'$(Configuration)'=='Debug'" Targets="CopyToKSP" />
+    <CallTarget Condition="'$(Configuration)'=='Release'" Targets="MakeZipPackage" />
+  </Target>
+  <Target Name="CopyToKSP">
+    <ItemGroup>
+      <GameDataFiles Include="$(SolutionDir)\GameData\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(GameDataFiles)" DestinationFolder="$(KSPInstallPath)\GameData\%(RecursiveDir)" />
+    <Copy SourceFiles="$(TargetDir)\$(AssemblyName).dll" DestinationFolder="$(KSPInstallPath)\GameData\$(AssemblyName)\Plugins\" />
+    <Copy SourceFiles="$(TargetDir)\$(AssemblyName).pdb" DestinationFolder="$(KSPInstallPath)\GameData\$(AssemblyName)\Plugins\" />
+  </Target>
+  <Target Name="MakeZipPackage">
+    <PropertyGroup>
+      <PublishFolder>$(SolutionDir)\Releases\</PublishFolder>
+      <PublishTempFolderPath>$(PublishFolder)\Temp\</PublishTempFolderPath>
+    </PropertyGroup>
+    <RemoveDir Condition="Exists('$(PublishTempFolderPath)')" Directories="$(PublishTempFolderPath)" />
+    <ItemGroup>
+      <GameDataFiles Include="$(SolutionDir)\GameData\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(GameDataFiles)" DestinationFolder="$(PublishTempFolderPath)\GameData\%(RecursiveDir)" />
+    <Copy SourceFiles="$(TargetDir)\$(AssemblyName).dll" DestinationFolder="$(PublishTempFolderPath)\GameData\$(AssemblyName)\Plugins\" />
+    <Copy SourceFiles="$(TargetDir)\$(AssemblyName).pdb" DestinationFolder="$(PublishTempFolderPath)\GameData\$(AssemblyName)\Plugins\" />
+    <Copy SourceFiles="$(SolutionDir)\README.md" DestinationFolder="$(PublishTempFolderPath)\GameData\$(AssemblyName)\" />
+    <ZipDirectory SourceDirectory="$(PublishTempFolderPath)" DestinationFile="$(PublishFolder)\latest.zip" Overwrite="true" />
+  </Target>
+</Project>
