@@ -4,6 +4,8 @@ using static HarmonyLib.AccessTools;
 
 namespace EasyRobotics
 {
+
+    // source : https://github.com/zalo/MathUtilities/tree/master/Assets/IK/CCDIK
     public class IKJoint : MonoBehaviour
     {
         BaseField servoTargetAngle;
@@ -33,6 +35,14 @@ namespace EasyRobotics
             axis = servo.GetMainAxis();
             //axis = transform.TransformDirection(axis).normalized;
             perpendicularAxis = Perpendicular(axis);
+
+            // TODO : this align IKJoint to current servo angle, move it somewhere else ?
+            currentAngle = servoTargetAngle.GetValue<float>(servo);
+            Vector3 worldAxis = transform.TransformDirection(axis).normalized;
+            Quaternion initialOffset = Quaternion.AngleAxis(currentAngle, worldAxis);
+            transform.rotation = initialOffset * transform.rotation;
+
+
         }
 
         public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
@@ -58,6 +68,8 @@ namespace EasyRobotics
             Vector3 currentHingeAxis = transform.rotation * axis;
             Vector3 hingeAxis = transform.parent.rotation * axis;
 
+            float sepAngle = Vector3.Angle(currentHingeAxis, hingeAxis);
+
             Quaternion hingeRotationOffset = Quaternion.FromToRotation(currentHingeAxis, hingeAxis);
             transform.rotation = hingeRotationOffset * transform.rotation;
 
@@ -65,33 +77,31 @@ namespace EasyRobotics
             Vector3 fromDirection = transform.parent.rotation * perpendicularAxis;
             Vector3 toDirection = transform.rotation * perpendicularAxis;
 
-            currentAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.TransformDirection(axis).normalized);
-            servoTargetAngle.SetValue(currentAngle, servo);
-
-            return;
-
             unclampedAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.TransformDirection(axis).normalized);
             //float currentAngle = servoTargetAngle.GetValue<float>(servo);
             Vector2 minMax = servoSoftMinMaxAngles.GetValue<Vector2>(servo);
-            float servoMinAngle = minMax.x;
-            float servoMaxAngle = minMax.y;
-            Vector3 clampedDirection;
+            float servoMinAngle = minMax.x + 0.5f;
+            float servoMaxAngle = minMax.y - 0.5f;
+            Vector3 clampedDirection = toDirection;
             clampingFraction = 0f;
 
-            if (unclampedAngle < servoMinAngle)
-            {
-                clampingFraction = (unclampedAngle - servoMinAngle) / unclampedAngle;
-                clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
-            }
-            else if (unclampedAngle > servoMaxAngle)
-            {
-                clampingFraction = (unclampedAngle - servoMaxAngle) / unclampedAngle;
-                clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
-            }
-            else
-                clampedDirection = toDirection;
+            //if (unclampedAngle < servoMinAngle)
+            //{
+            //    clampingFraction = (unclampedAngle - servoMinAngle) / unclampedAngle;
+            //    clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
+            //    transform.rotation = Quaternion.FromToRotation(toDirection, clampedDirection) * transform.rotation;
+            //}
+            //else if (unclampedAngle > servoMaxAngle)
+            //{
+            //    clampingFraction = (unclampedAngle - servoMaxAngle) / unclampedAngle;
+            //    clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
+            //    transform.rotation = Quaternion.FromToRotation(toDirection, clampedDirection) * transform.rotation;
+            //}
+            //else
+            //{
+            //    clampedDirection = toDirection;
+            //}
 
-            transform.rotation = Quaternion.FromToRotation(fromDirection, clampedDirection) * transform.rotation;
 
             // Set servo angle
             currentAngle = Vector3.SignedAngle(fromDirection, clampedDirection, transform.TransformDirection(axis).normalized);

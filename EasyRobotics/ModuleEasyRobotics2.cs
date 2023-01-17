@@ -168,6 +168,15 @@ namespace EasyRobotics
             SetupIKChain();
         }
 
+        [KSPEvent(guiName = "Iterate", active = true, guiActive = true, guiActiveEditor = true)]
+        public void Iterate()
+        {
+            foreach (IKJoint ikJoint in joints)
+            {
+                ikJoint.Evaluate(effector, target);
+            }
+        }
+
         private ScreenMessage currentMessage;
 
         private void QuitEditMode()
@@ -278,7 +287,7 @@ namespace EasyRobotics
                 case State.Active:
                     if (configChanged)
                     {
-                        SetupIKChain();
+                        SetupChain();
                     }
 
 
@@ -368,7 +377,9 @@ namespace EasyRobotics
 
             joints = copy;
 
-            effector.SetParent(joints[0].transform, true);
+            effector.SetParent(joints[0].transform);
+            effector.position = effectorPart.transform.position;
+            effector.rotation = effectorPart.transform.rotation;
         }
 
         private IKJoint InstantiateIKJoint(BaseServo servo)
