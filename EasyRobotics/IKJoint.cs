@@ -1,28 +1,30 @@
 ﻿using Expansions.Serenity;
 using UnityEngine;
+using static HarmonyLib.AccessTools;
 
 namespace EasyRobotics
 {
     public class IKJoint : MonoBehaviour
     {
+        BaseField servoTargetAngle;
+        BaseField servoSoftMinMaxAngles;
         public BaseServo servo;
         public IKJoint root;
         public IKJoint parent;
         public Vector3 axis; // local space
         Vector3 perpendicularAxis;
-        public float maxAngle;
+        //public float maxAngle;
         public float currentAngle;
-        public float constrainToNormalAngle;
+        public float unclampedAngle;
+        public float clampingFraction;
         public int order;
-
-        public Quaternion initialRotation;
 
         public void Setup(BaseServo servo)
         {
             this.servo = servo;
-
-            maxAngle = 90f; // will need to do something more complicated anyway
-
+            servoTargetAngle = servo.Fields["targetAngle"];
+            servoSoftMinMaxAngles = servo.Fields["softMinMaxAngles"];
+            currentAngle = servoTargetAngle.GetValue<float>(servo);
         }
 
         // axis must be in world space
@@ -31,15 +33,16 @@ namespace EasyRobotics
             axis = servo.GetMainAxis();
             //axis = transform.TransformDirection(axis).normalized;
             perpendicularAxis = Perpendicular(axis);
-            initialRotation = transform.localRotation;
         }
 
         public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
         {
-            // Rotate ignoring all constraints
+            // CCDIK step 1 : rotate ignoring all constraints
             if (rotateToDirection)
             {
                 // Point the effector along the target direction
+                // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
+                // while other servos are matching target direction
                 transform.rotation = Quaternion.FromToRotation(effector.up, target.forward);
             }
             else
@@ -51,67 +54,56 @@ namespace EasyRobotics
                 transform.rotation = rotationOffset * transform.rotation;
             }
 
-            // Constrain to rotate around the axis
+            // CCDIK step 2 : constrain to rotate around the axis
             Vector3 currentHingeAxis = transform.rotation * axis;
             Vector3 hingeAxis = transform.parent.rotation * axis;
 
             Quaternion hingeRotationOffset = Quaternion.FromToRotation(currentHingeAxis, hingeAxis);
             transform.rotation = hingeRotationOffset * transform.rotation;
 
-            // Enforce Joint Limits
-            Vector3 fromDirection = transform.rotation * perpendicularAxis;
-            Vector3 toDirection = ConstrainToNormal(fromDirection, transform.parent.rotation * perpendicularAxis, maxAngle);
+            // CCDIK step 3 : enforce joint Limits
+            Vector3 fromDirection = transform.parent.rotation * perpendicularAxis;
+            Vector3 toDirection = transform.rotation * perpendicularAxis;
 
-            transform.rotation = Quaternion.FromToRotation(fromDirection, toDirection) * transform.rotation;
+            currentAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.TransformDirection(axis).normalized);
+            servoTargetAngle.SetValue(currentAngle, servo);
 
-            currentAngle = CurrentAngle();
+            return;
 
-            if (servo is ModuleRoboticRotationServo || servo is ModuleRoboticServoHinge)
-                servo.Fields["targetAngle"].SetValue(currentAngle, servo);
+            unclampedAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.TransformDirection(axis).normalized);
+            //float currentAngle = servoTargetAngle.GetValue<float>(servo);
+            Vector2 minMax = servoSoftMinMaxAngles.GetValue<Vector2>(servo);
+            float servoMinAngle = minMax.x;
+            float servoMaxAngle = minMax.y;
+            Vector3 clampedDirection;
+            clampingFraction = 0f;
+
+            if (unclampedAngle < servoMinAngle)
+            {
+                clampingFraction = (unclampedAngle - servoMinAngle) / unclampedAngle;
+                clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
+            }
+            else if (unclampedAngle > servoMaxAngle)
+            {
+                clampingFraction = (unclampedAngle - servoMaxAngle) / unclampedAngle;
+                clampedDirection = Vector3.Slerp(toDirection.normalized, fromDirection.normalized, clampingFraction) * toDirection.magnitude;
+            }
+            else
+                clampedDirection = toDirection;
+
+            transform.rotation = Quaternion.FromToRotation(fromDirection, clampedDirection) * transform.rotation;
+
+            // Set servo angle
+            currentAngle = Vector3.SignedAngle(fromDirection, clampedDirection, transform.TransformDirection(axis).normalized);
+            servoTargetAngle.SetValue(currentAngle, servo);
         }
 
         private Vector3 Perpendicular(Vector3 vec)
         {
-            return Mathf.Abs(vec.x) > Mathf.Abs(vec.z) ? new Vector3(-vec.y, vec.x, 0f)
-                : new Vector3(0f, -vec.z, vec.y);
-        }
-
-        private Vector3 ConstrainToNormal(Vector3 direction, Vector3 normalDirection, float maxAngle)
-        {
-            if (maxAngle <= 0f) 
-                return normalDirection.normalized * direction.magnitude; 
-            if (maxAngle >= 180f) 
-                return direction;
-
-            constrainToNormalAngle = Mathf.Acos(Mathf.Clamp(Vector3.Dot(direction.normalized, normalDirection.normalized), -1f, 1f)) * Mathf.Rad2Deg;
-
-            return Vector3.Slerp(direction.normalized, normalDirection.normalized, (constrainToNormalAngle - maxAngle) / constrainToNormalAngle) * direction.magnitude;
-        }
-
-        private float CurrentAngle()
-        {
-            Vector3 fromDirection = transform.rotation * perpendicularAxis;
-            Vector3 normalDirection = transform.parent.rotation * perpendicularAxis;
-
-            float angle = Vector3.SignedAngle(normalDirection, fromDirection, transform.TransformDirection(axis).normalized);
-
-            //float angle = Mathf.Acos(Mathf.Clamp(Vector3.Dot(fromDirection.normalized, normalDirection.normalized), -1f, 1f)) * Mathf.Rad2Deg;
-
-            //(transform.localRotation * Quaternion.Inverse(initialRotation)).ToAngleAxis(out float angle, out Vector3 angleAxis);
-
-            //if (Vector3.Angle(servo.GetMainAxis(), angleAxis) > 90f)
-            //{
-            //    angle = -angle;
-            //}
-
-            //angle = Mathf.DeltaAngle(0f, angle);
-
-            //if (parent == null)
-            //{
-            //    angle = -angle;
-            //}
-
-            return angle;
+            if (Mathf.Abs(vec.x) > Mathf.Abs(vec.z))
+                return new Vector3(-vec.y, vec.x, 0f);
+            else
+                return new Vector3(0f, -vec.z, vec.y);
         }
     }
 }

@@ -208,14 +208,18 @@ namespace EasyRobotics
                     }
                 case State.SelectEffector:
                     {
+                        if (effector != null)
+                            Destroy(effector.gameObject);
+
+                        effector = null;
+                        effectorPart = null;
+
                         if (currentMessage == null)
                             currentMessage = ScreenMessages.PostScreenMessage($"Selecting effector\n[ENTER] to select\n[ESC] to end", float.MaxValue);
 
                         if (Input.GetKeyDown(KeyCode.Escape))
                         {
                             ScreenMessages.PostScreenMessage($"No effector selected");
-                            effector = null;
-                            effectorPart = null;
                             configChanged = true;
                             QuitEditMode();
                         }
@@ -228,7 +232,9 @@ namespace EasyRobotics
                                 if (part != null)
                                 {
                                     effectorPart = part;
-                                    effector = part.transform;
+                                    effector = InstantiateEffector(part).transform;
+                                    effector.position = part.transform.position;
+                                    effector.rotation = part.transform.rotation;
                                     configChanged = true;
                                     ScreenMessages.PostScreenMessage($"{part.partInfo.title} selected as effector");
                                     QuitEditMode();
@@ -326,22 +332,17 @@ namespace EasyRobotics
                 }
                 else
                 {
+                    ikJoint.transform.SetParent(ikJoint.servo.transform);
                     root = ikJoint;
                 }
             }
-
-            Vector3 rootOrgPos = root.servo.part.orgPos;
-            Quaternion rootOrgRot = root.servo.part.orgRot;
 
             for (var i = joints.Count - 1; i >= 0; i--)
             {
                 var ikJoint = joints[i];
                 ikJoint.root = root;
-                if (ikJoint.parent != null)
-                {
-                    ikJoint.transform.position = ikJoint.servo.part.orgPos - rootOrgPos;
-                    ikJoint.transform.rotation = Quaternion.Inverse(rootOrgRot) * ikJoint.servo.part.orgRot;
-                }
+                ikJoint.transform.position = ikJoint.servo.transform.position;
+                ikJoint.transform.rotation = ikJoint.servo.transform.rotation;
 
                 ikJoint.GetAxis();
             }
@@ -366,8 +367,8 @@ namespace EasyRobotics
             } while (joints.Count > 0);
 
             joints = copy;
-            root.transform.position = root.servo.transform.position;
-            root.transform.SetParent(root.servo.transform, true);
+
+            effector.SetParent(joints[0].transform, true);
         }
 
         private IKJoint InstantiateIKJoint(BaseServo servo)
@@ -379,6 +380,15 @@ namespace EasyRobotics
             IKJoint ikJoint = jointObject.AddComponent<IKJoint>();
             ikJoint.Setup(servo);
             return ikJoint;
+        }
+
+        private GameObject InstantiateEffector(Part part)
+        {
+            GameObject effector = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            effector.name = $"{part.partInfo.name} (IKEffector)";
+            UnityEngine.Object.Destroy(effector.GetComponent<Collider>());
+            effector.GetComponent<MeshRenderer>().material = ServoMaterial;
+            return effector;
         }
     }
 }
