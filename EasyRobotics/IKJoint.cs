@@ -14,7 +14,7 @@ namespace EasyRobotics
         public IKJoint root;
         public IKJoint parent;
         public Vector3 axis; // local space
-        Vector3 perpendicularAxis;
+        public Vector3 perpendicularAxis;
         //public float maxAngle;
         public float currentAngle;
         public float unclampedAngle;
@@ -36,13 +36,21 @@ namespace EasyRobotics
             //axis = transform.TransformDirection(axis).normalized;
             perpendicularAxis = Perpendicular(axis);
 
+            float angle = Vector3.Angle(axis, perpendicularAxis);
+
             // TODO : this align IKJoint to current servo angle, move it somewhere else ?
             currentAngle = servoTargetAngle.GetValue<float>(servo);
             Vector3 worldAxis = transform.TransformDirection(axis).normalized;
-            Quaternion initialOffset = Quaternion.AngleAxis(currentAngle, worldAxis);
-            transform.rotation = initialOffset * transform.rotation;
+            Quaternion axisOffset = Quaternion.FromToRotation(transform.up, worldAxis);
+            Quaternion servoOffset = Quaternion.AngleAxis(currentAngle, worldAxis);
+            transform.rotation = servoOffset * axisOffset * transform.rotation;
 
 
+        }
+
+        public void SyncRotationWithServo()
+        {
+            currentAngle = servoTargetAngle.GetValue<float>(servo);
         }
 
         public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
@@ -65,10 +73,11 @@ namespace EasyRobotics
             }
 
             // CCDIK step 2 : constrain to rotate around the axis
-            Vector3 currentHingeAxis = transform.rotation * axis;
-            Vector3 hingeAxis = transform.parent.rotation * axis;
+            //Vector3 currentHingeAxis = transform.rotation * axis;
+            //Vector3 hingeAxis = transform.parent.rotation * axis;
 
-            float sepAngle = Vector3.Angle(currentHingeAxis, hingeAxis);
+            Vector3 currentHingeAxis = transform.up;
+            Vector3 hingeAxis = Quaternion.FromToRotation(parent.axis, parent.transform.up);
 
             Quaternion hingeRotationOffset = Quaternion.FromToRotation(currentHingeAxis, hingeAxis);
             transform.rotation = hingeRotationOffset * transform.rotation;
