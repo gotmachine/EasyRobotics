@@ -16,17 +16,20 @@ namespace EasyRobotics
         public Vector3 axis; // local space
         public Vector3 perpendicularAxis;
         //public float maxAngle;
-        public float currentAngle;
+        public float servoAngle;
         public float unclampedAngle;
         public float clampingFraction;
         public int order;
+
+        public Quaternion toParent;
+        public Vector3 lastDirection;
 
         public void Setup(BaseServo servo)
         {
             this.servo = servo;
             servoTargetAngle = servo.Fields["targetAngle"];
             servoSoftMinMaxAngles = servo.Fields["softMinMaxAngles"];
-            currentAngle = servoTargetAngle.GetValue<float>(servo);
+            servoAngle = servoTargetAngle.GetValue<float>(servo);
         }
 
         // axis must be in world space
@@ -39,22 +42,26 @@ namespace EasyRobotics
             float angle = Vector3.Angle(axis, perpendicularAxis);
 
             // TODO : this align IKJoint to current servo angle, move it somewhere else ?
-            currentAngle = servoTargetAngle.GetValue<float>(servo);
+            servoAngle = servoTargetAngle.GetValue<float>(servo);
             Vector3 worldAxis = transform.TransformDirection(axis).normalized;
-            Quaternion axisOffset = Quaternion.FromToRotation(transform.up, worldAxis);
-            Quaternion servoOffset = Quaternion.AngleAxis(currentAngle, worldAxis);
-            transform.rotation = servoOffset * axisOffset * transform.rotation;
+            Quaternion axisOffset = Quaternion.FromToRotation(worldAxis, transform.up); // 18/01 -> inverted from and to
+            Quaternion servoOffset = Quaternion.AngleAxis(servoAngle, worldAxis);
+            Quaternion transformOffset = servoOffset * axisOffset;
+            transform.rotation = transformOffset * transform.rotation;
 
 
         }
 
         public void SyncRotationWithServo()
         {
-            currentAngle = servoTargetAngle.GetValue<float>(servo);
+            servoAngle = servoTargetAngle.GetValue<float>(servo);
         }
 
-        public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
+
+        public void UpdateDirection(Transform effector, Transform target, bool rotateToDirection = false)
         {
+
+
             // CCDIK step 1 : rotate ignoring all constraints
             if (rotateToDirection)
             {
@@ -71,22 +78,68 @@ namespace EasyRobotics
                 Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
                 transform.rotation = rotationOffset * transform.rotation;
             }
+        }
 
-            // CCDIK step 2 : constrain to rotate around the axis
-            //Vector3 currentHingeAxis = transform.rotation * axis;
-            //Vector3 hingeAxis = transform.parent.rotation * axis;
+        public void ConstrainToAxis()
+        {
+            Quaternion toParentAfter = Quaternion.FromToRotation(transform.parent.up, transform.up);
+            Quaternion correction = toParent * Quaternion.Inverse(toParentAfter);
+            transform.rotation = correction * transform.rotation;
+        }
 
-            Vector3 currentHingeAxis = transform.up;
-            Vector3 hingeAxis = Quaternion.FromToRotation(parent.axis, parent.transform.up);
+        public void ConstrainToMinMaxAngle()
+        {
+            Vector3 requestedDirection = transform.right;
 
-            Quaternion hingeRotationOffset = Quaternion.FromToRotation(currentHingeAxis, hingeAxis);
-            transform.rotation = hingeRotationOffset * transform.rotation;
+            float requestedAngleOffset = Vector3.SignedAngle(requestedDirection, lastDirection, transform.up);
+            float currentAngle = servoTargetAngle.GetValue<float>(servo);
+            float requestedAngle = currentAngle + requestedAngleOffset;
 
+            Vector2 minMax = servoSoftMinMaxAngles.GetValue<Vector2>(servo);
+            float servoMinAngle = minMax.x;
+            float servoMaxAngle = minMax.y;
+
+            float limit = 0f;
+            if (requestedAngle < servoMinAngle)
+                limit = servoMinAngle;
+            else if (requestedAngle > servoMaxAngle)
+                limit = servoMaxAngle;
+
+            if (limit != 0f)
+            {
+                clampingFraction = (requestedAngle - limit) / requestedAngle;
+                Vector3 clampedDirection = Vector3.Slerp(requestedDirection.normalized, lastDirection.normalized, clampingFraction) * requestedDirection.magnitude;
+                transform.rotation = Quaternion.FromToRotation(requestedDirection, clampedDirection) * transform.rotation;
+                servoAngle = limit;
+                servoAngle = Mathf.Clamp(servoAngle, servoMinAngle, servoMaxAngle);
+            }
+            else
+            {
+                clampingFraction = 0f;
+                servoAngle = requestedAngle;
+            }
+
+            servoTargetAngle.SetValue(servoAngle, servo);
+        }
+
+        public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
+        {
+            toParent = Quaternion.FromToRotation(transform.parent.up, transform.up);
+            lastDirection = transform.right;
+
+            // CCDIK step 1 : rotate ignoring all constraints
+            UpdateDirection(effector, target, rotateToDirection);
+            ConstrainToAxis();
+            ConstrainToMinMaxAngle();
+        }
+
+        public void ConstrainMinMaxOld()
+        {
             // CCDIK step 3 : enforce joint Limits
             Vector3 fromDirection = transform.parent.rotation * perpendicularAxis;
             Vector3 toDirection = transform.rotation * perpendicularAxis;
 
-            unclampedAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.TransformDirection(axis).normalized);
+            unclampedAngle = Vector3.SignedAngle(fromDirection, toDirection, transform.up);
             //float currentAngle = servoTargetAngle.GetValue<float>(servo);
             Vector2 minMax = servoSoftMinMaxAngles.GetValue<Vector2>(servo);
             float servoMinAngle = minMax.x + 0.5f;
@@ -113,8 +166,8 @@ namespace EasyRobotics
 
 
             // Set servo angle
-            currentAngle = Vector3.SignedAngle(fromDirection, clampedDirection, transform.TransformDirection(axis).normalized);
-            servoTargetAngle.SetValue(currentAngle, servo);
+            servoAngle = Vector3.SignedAngle(fromDirection, clampedDirection, transform.TransformDirection(axis).normalized);
+            servoTargetAngle.SetValue(servoAngle, servo);
         }
 
         private Vector3 Perpendicular(Vector3 vec)

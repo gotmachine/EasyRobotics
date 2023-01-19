@@ -96,38 +96,41 @@ namespace EasyRobotics
 
         public override void OnStart(StartState state)
         {
-            ConfigNode effectorNode = loadedConfig.GetNode("EFFECTOR");
-            if (effectorNode != null)
+            if (loadedConfig != null)
             {
-                uint craftID = 0;
-                effectorNode.TryGetValue("craftId", ref craftID);
-                effectorPart = FindPartByCraftId(craftID);
-                effector = InstantiateEffector(effectorPart).transform;
-                effector.position = effectorPart.transform.position;
-                effector.rotation = effectorPart.transform.rotation;
-            }
-
-            ConfigNode[] jointNodes = loadedConfig.GetNodes("IKJOINT");
-
-            int jointCount = jointNodes.Length;
-            servos = new List<BaseServo>(jointCount);
-            for (int i = jointCount - 1; i >= 0; i--)
-            {
-                ConfigNode jointNode = jointNodes[i];
-                foreach (ConfigNode.Value jointNodeValue in jointNode.values)
+                ConfigNode effectorNode = loadedConfig.GetNode("EFFECTOR");
+                if (effectorNode != null)
                 {
-                    if (jointNodeValue.name == "craftId")
+                    uint craftID = 0;
+                    effectorNode.TryGetValue("craftId", ref craftID);
+                    effectorPart = FindPartByCraftId(craftID);
+                    effector = InstantiateEffector(effectorPart).transform;
+                    effector.position = effectorPart.transform.position;
+                    effector.rotation = effectorPart.transform.rotation;
+                }
+
+                ConfigNode[] jointNodes = loadedConfig.GetNodes("IKJOINT");
+
+                int jointCount = jointNodes.Length;
+                servos = new List<BaseServo>(jointCount);
+                for (int i = jointCount - 1; i >= 0; i--)
+                {
+                    ConfigNode jointNode = jointNodes[i];
+                    foreach (ConfigNode.Value jointNodeValue in jointNode.values)
                     {
-                        uint craftId = uint.Parse(jointNodeValue.value);
-                        Part servoPart = FindPartByCraftId(craftId);
-                        servos.Add(servoPart.FindModuleImplementing<BaseServo>());
+                        if (jointNodeValue.name == "craftId")
+                        {
+                            uint craftId = uint.Parse(jointNodeValue.value);
+                            Part servoPart = FindPartByCraftId(craftId);
+                            servos.Add(servoPart.FindModuleImplementing<BaseServo>());
+                        }
                     }
                 }
-            }
 
-            if (effector != null && servos.Count > 0)
-            {
-                SetupChain();
+                if (effector != null && servos.Count > 0)
+                {
+                    SetupChain();
+                }
             }
         }
 
@@ -173,6 +176,33 @@ namespace EasyRobotics
             {
                 ikJoint.Evaluate(effector, target);
             }
+        }
+
+        [KSPField(guiActive = true, guiActiveEditor = true)]
+        public int next;
+
+        public bool done = false;
+
+        [KSPEvent(guiName = "IterateOnebyOne", active = true, guiActive = true, guiActiveEditor = true)]
+        public void IterateOnebyOne()
+        {
+            if (!done)
+            {
+                joints[next].UpdateDirection(effector, target);
+                done = true;
+            }
+            else
+            {
+                joints[next].ConstrainToAxis();
+                done = false;
+                next = ++next % joints.Count;
+            }
+        }
+
+        [KSPEvent(guiName = "ResetNext", active = true, guiActive = true, guiActiveEditor = true)]
+        public void ResetNext()
+        {
+            next = 0;
         }
 
         private ScreenMessage currentMessage;
