@@ -17,11 +17,15 @@ using static SoftMasking.SoftMask;
 
 namespace EasyRobotics
 {
-    public class IKJoint2 : MonoBehaviour
+    public class IKJoint3 : MonoBehaviour
     {
+        public BasicTransform baseTransform;
+        public BasicTransform movingTransform2;
         public BaseServo servo;
         public bool previousInChainAttachedByMovingPart;
+
         public Transform movingTransform;
+
         BaseField servoTargetAngle;
         BaseField servoSoftMinMaxAngles;
 
@@ -52,10 +56,10 @@ namespace EasyRobotics
             }
         }
 
-        public static IKJoint2 InstantiateIKJoint(BaseServo servo)
+        public static IKJoint3 InstantiateIKJoint(BaseServo servo)
         {
             GameObject jointObject = new GameObject();
-            IKJoint2 ikJoint = jointObject.AddComponent<IKJoint2>();
+            IKJoint3 ikJoint = jointObject.AddComponent<IKJoint3>();
             ikJoint.Setup(servo);
             return ikJoint;
         }
@@ -73,13 +77,14 @@ namespace EasyRobotics
             movingTransform.SetParent(transform);
             movingTransform.localPosition = Vector3.zero;
             movingTransform.localRotation = Quaternion.AngleAxis(ServoAngle, axis);
+
+            baseTransform = new BasicTransform(null);
+            movingTransform2 = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoAngle, axis), true);
         }
 
 
-        public void UpdateDirection(Transform effector, Transform target, bool rotateToDirection = false)
+        public void UpdateDirection(Transform effector, BasicTransform effector2, Transform target, bool rotateToDirection = false)
         {
-
-
             // CCDIK step 1 : rotate ignoring all constraints
             if (rotateToDirection)
             {
@@ -95,6 +100,12 @@ namespace EasyRobotics
                 Vector3 directionToTarget = target.position - transform.position;
                 Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
                 movingTransform.rotation = rotationOffset * movingTransform.rotation;
+
+                // Point the effector towards the target
+                Vector3 directionToEffector2 = effector2.Position - baseTransform.Position;
+                Vector3 directionToTarget2 = target.position - baseTransform.Position;
+                Quaternion rotationOffset2 = Quaternion.FromToRotation(directionToEffector2, directionToTarget2);
+                movingTransform2.Rotation = rotationOffset2 * movingTransform2.Rotation; // could be LocalRotation ?
             }
         }
 
@@ -104,14 +115,22 @@ namespace EasyRobotics
             Vector3 to = transform.rotation * axis;
             Quaternion correction = Quaternion.FromToRotation(from, to);
             movingTransform.rotation = correction * movingTransform.rotation;
+
+            Vector3 from2 = movingTransform2.Rotation * axis;
+            Vector3 to2 = baseTransform.Rotation * axis;
+            Quaternion correction2 = Quaternion.FromToRotation(from2, to2);
+            movingTransform2.Rotation = correction2 * movingTransform2.Rotation;
         }
 
         public void ConstrainToMinMaxAngle()
         {
             Vector3 baseDir = perpendicularAxis;
             Vector3 newDir = movingTransform.localRotation * perpendicularAxis;
-
             float requestedAngle = Vector3.SignedAngle(baseDir, newDir, axis);
+
+            Vector3 baseDir2 = perpendicularAxis;
+            Vector3 newDir2 = movingTransform2.LocalRotation * perpendicularAxis;
+            float requestedAngle2 = Vector3.SignedAngle(baseDir2, newDir2, axis);
 
             Vector2 minMax = servoSoftMinMaxAngles.GetValue<Vector2>(servo);
             float servoMinAngle = Math.Max(minMax.x, -179.99f);
@@ -128,18 +147,29 @@ namespace EasyRobotics
                 movingTransform.localRotation = Quaternion.AngleAxis(servoMaxAngle, axis);
             }
 
-            ServoAngle = requestedAngle;
+            if (requestedAngle2 < servoMinAngle)
+            {
+                requestedAngle2 = servoMinAngle;
+                movingTransform2.LocalRotation = Quaternion.AngleAxis(servoMinAngle, axis);
+            }
+            else if (requestedAngle2 > servoMaxAngle)
+            {
+                requestedAngle2 = servoMaxAngle;
+                movingTransform2.LocalRotation = Quaternion.AngleAxis(servoMaxAngle, axis);
+            }
+
+            ServoAngle = requestedAngle2;
+
+            //ServoAngle = requestedAngle;
         }
 
-        public void Evaluate(Transform effector, Transform target, bool rotateToDirection = false)
+        public void Evaluate(Transform effector, BasicTransform effector2, Transform target, bool rotateToDirection = false)
         {
             // CCDIK step 1 : rotate ignoring all constraints
-            UpdateDirection(effector, target, rotateToDirection);
+            UpdateDirection(effector, effector2, target, rotateToDirection);
             ConstrainToAxis();
             ConstrainToMinMaxAngle();
         }
-
-
 
         private Vector3 Perpendicular(Vector3 vec)
         {
@@ -148,7 +178,5 @@ namespace EasyRobotics
             else
                 return new Vector3(0f, -vec.z, vec.y);
         }
-
-
     }
 }

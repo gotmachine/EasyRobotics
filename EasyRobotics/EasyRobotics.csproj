@@ -70,7 +70,9 @@
   <ItemGroup>
     <Compile Include="DrawTools.cs" />
     <Compile Include="IKJoint.cs" />
+    <Compile Include="IKJoint3.cs" />
     <Compile Include="IKJoint2.cs" />
+    <Compile Include="BasicTransform.cs" />
     <Compile Include="ModuleEasyRobotics.cs" />
     <Compile Include="ModuleEasyRobotics2.cs" />
     <Compile Include="ModuleEasyRobotics3.cs" />

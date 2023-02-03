@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using EasyRobotics;
 using UnityEngine;
 
 public static class DrawTools
@@ -111,6 +112,18 @@ public static class DrawTools
 
         GLEnd();
     }
+
+    public static void DrawTransform(BasicTransform t, float scale = 1.0f)
+    {
+        GLStart();
+
+        DrawRayImpl(t.Position, t.Up * scale, Color.green);
+        DrawRayImpl(t.Position, t.Right * scale, Color.red);
+        DrawRayImpl(t.Position, t.Forward * scale, Color.blue);
+
+        GLEnd();
+    }
+
     public static void DrawPoint(Vector3 position, Color color, float scale = 1.0f)
     {
         GLStart();
