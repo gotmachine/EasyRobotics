@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace EasyRobotics
 {
-    public class ModuleEasyRobotics3 : PartModule
+    public class ModuleEasyRobotics4 : PartModule
     {
         private enum State
         {
@@ -17,17 +17,17 @@ namespace EasyRobotics
             SelectTarget,
             SelectEffector,
             SelectServo,
+            SelectOrientationServo,
             Active
         }
 
-        private List<IKJoint3> joints = new List<IKJoint3>();
+        private List<IKJoint4> joints = new List<IKJoint4>();
         private List<BaseServo> servos = new List<BaseServo>();
 
-        private IKJoint3 rootJoint;
+        private IKJoint4 rootJoint;
 
         private Part effectorPart;
-        private Transform effector;
-        private BasicTransform effector2;
+        private BasicTransform effector;
         private Transform target;
         private bool configChanged;
 
@@ -48,9 +48,6 @@ namespace EasyRobotics
         [KSPEvent(guiName = "Select servos", active = true, guiActive = true, guiActiveEditor = true)]
         public void SelectServos()
         {
-            foreach (IKJoint3 ikJoint in joints)
-                ikJoint.gameObject.DestroyGameObject();
-
             servos.Clear();
             joints.Clear();
 
@@ -60,9 +57,6 @@ namespace EasyRobotics
         [KSPEvent(guiName = "Setup chain", active = true, guiActive = true, guiActiveEditor = true)]
         public void SetupChain()
         {
-            foreach (IKJoint3 ikJoint in joints)
-                ikJoint.gameObject.DestroyGameObject();
-
             joints.Clear();
             SetupIKChain();
         }
@@ -70,9 +64,9 @@ namespace EasyRobotics
         [KSPEvent(guiName = "Iterate", active = true, guiActive = true, guiActiveEditor = true)]
         public void Iterate()
         {
-            foreach (IKJoint3 ikJoint in joints)
+            foreach (IKJoint4 ikJoint in joints)
             {
-                ikJoint.Evaluate(effector, effector2, target);
+                ikJoint.Evaluate(effector, target);
             }
         }
 
@@ -86,7 +80,7 @@ namespace EasyRobotics
         {
             if (!done)
             {
-                joints[next].UpdateDirection(effector, effector2, target);
+                joints[next].UpdateDirection(effector, target);
                 done = true;
             }
             else
@@ -103,27 +97,22 @@ namespace EasyRobotics
             next = 0;
         }
 
-        [KSPEvent(guiName = "LogChain", active = true, guiActive = true, guiActiveEditor = true)]
-        public void LogChain()
-        {
-            next = 0;
-        }
+        [KSPEvent(guiName = "SetOrientationServos", active = true, guiActive = true, guiActiveEditor = true)]
+        public void SetOrientationServos() => state = State.SelectOrientationServo;
 
         private void SetupIKChain()
         {
             for (int i = 0; i < servos.Count; i++)
             {
                 BaseServo servo = servos[i];
-                IKJoint3 joint = IKJoint3.InstantiateIKJoint(servo);
+                IKJoint4 joint = new IKJoint4(servo);
                 joints.Add(joint);
                 if (i > 0)
                 {
-                    joints[i - 1].transform.SetParent(joint.movingTransform);
-                    joints[i - 1].baseTransform.SetParent(joint.movingTransform2);
+                    joints[i - 1].baseTransform.SetParent(joint.movingTransform);
 
                     if (i == servos.Count - 1)
                     {
-                        joint.transform.SetParent(servo.transform);
                         rootJoint = joint;
                     }
                 }
@@ -131,21 +120,16 @@ namespace EasyRobotics
 
             for (int i = joints.Count - 1; i >= 0; i--)
             {
-                IKJoint3 joint = joints[i];
-                joint.gameObject.name = $"IKJoint #{i} ({joint.servo.part.partInfo.name})";
-                joint.movingTransform.gameObject.name = $"IKJoint #{i} (MovingTransform)";
-                joint.transform.position = joint.servo.transform.position;
-                joint.transform.rotation = joint.servo.transform.rotation;
+                IKJoint4 joint = joints[i];
+                joint.baseTransform.name = $"IKJoint #{i} ({joint.servo.part.partInfo.name})";
+                joint.movingTransform.name = $"IKJoint #{i} (MovingTransform)";
                 joint.baseTransform.Position = joint.servo.transform.position;
                 joint.baseTransform.Rotation = joint.servo.transform.rotation;
             }
 
             effector.SetParent(joints[0].movingTransform);
-            effector.position = effectorPart.transform.position;
-            effector.rotation = effectorPart.transform.rotation;
-
-            effector2.SetParent(joints[0].movingTransform2);
-            effector2.SetPosAndRot(effectorPart.transform.position, effectorPart.transform.rotation);
+            effector.SetPosAndRot(effectorPart.transform.position, effectorPart.transform.rotation);
+            configChanged = false;
         }
 
         private ScreenMessage currentMessage;
@@ -195,7 +179,7 @@ namespace EasyRobotics
                 case State.SelectEffector:
                     {
                         if (effector != null)
-                            Destroy(effector.gameObject);
+                            effector.SetParent(null);
 
                         effector = null;
                         effectorPart = null;
@@ -218,12 +202,7 @@ namespace EasyRobotics
                                 if (part != null)
                                 {
                                     effectorPart = part;
-                                    effector = InstantiateEffector(part).transform;
-                                    effector.position = part.transform.position;
-                                    effector.rotation = part.transform.rotation;
-                                    effector2 = new BasicTransform(null);
-                                    effector2.Position = part.transform.position;
-                                    effector2.Rotation = part.transform.rotation;
+                                    effector = new BasicTransform(null, part.transform.position, part.transform.rotation);
                                     configChanged = true;
                                     ScreenMessages.PostScreenMessage($"{part.partInfo.title} selected as effector");
                                     QuitEditMode();
@@ -264,6 +243,42 @@ namespace EasyRobotics
                         }
                         break;
                     }
+                case State.SelectOrientationServo:
+                {
+                    if (currentMessage == null)
+                        currentMessage = ScreenMessages.PostScreenMessage($"Selecting orientation servos\n[ENTER] to select\n[ESC] to end", float.MaxValue);
+
+                    if (Input.GetKeyDown(KeyCode.Escape))
+                    {
+                        QuitEditMode();
+                        break;
+                    }
+
+                    if (Input.GetKeyDown(KeyCode.Return))
+                    {
+                        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+                        if (Physics.Raycast(ray, out RaycastHit hit, 100f))
+                        {
+                            Part part = FlightGlobals.GetPartUpwardsCached(hit.transform.gameObject);
+                            if (part != null)
+                            {
+                                BaseServo servo = part.FindModuleImplementing<BaseServo>();
+                                if (servo != null)
+                                {
+                                    IKJoint4 joint = joints.Find(p => p.servo == servo);
+                                    if (joint != null)
+                                    {
+                                        joint.rotateToDirection = !joint.rotateToDirection;
+                                        ScreenMessages.PostScreenMessage($"{part.partInfo.title} joint set to rotate to direction : {joint.rotateToDirection}");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+
                 case State.Active:
                     if (configChanged)
                     {
@@ -271,9 +286,9 @@ namespace EasyRobotics
                     }
 
 
-                    foreach (IKJoint3 ikJoint in joints)
+                    foreach (IKJoint4 ikJoint in joints)
                     {
-                        ikJoint.Evaluate(effector, effector2, target);
+                        ikJoint.Evaluate(effector, target);
                     }
                     break;
             }
@@ -284,46 +299,21 @@ namespace EasyRobotics
 
         private void OnRenderObject()
         {
-            //foreach (IKJoint3 ikJoint in joints)
-            //{
-            //    Vector3 pos = ikJoint.transform.position;
-            //    Vector3 axis = ikJoint.transform.rotation * ikJoint.axis * 0.5f;
-            //    DrawTools.DrawLine(pos - axis, pos + axis, Color.red);
-            //    Vector3 perp = ikJoint.transform.rotation * ikJoint.perpendicularAxis;
-            //    DrawTools.DrawLine(pos, pos + perp, Color.yellow);
-            //    Vector3 perpmoved = ikJoint.movingTransform.rotation * ikJoint.perpendicularAxis;
-            //    DrawTools.DrawLine(pos, pos + perpmoved, Color.green);
-            //}
-
-            //if (effector != null)
-            //{
-            //    DrawTools.DrawTransform(effector);
-            //}
-
-            foreach (IKJoint3 ikJoint in joints)
+            foreach (IKJoint4 ikJoint in joints)
             {
                 Vector3 pos = ikJoint.baseTransform.Position;
                 Vector3 axis = ikJoint.baseTransform.Rotation * ikJoint.axis * 0.5f;
                 DrawTools.DrawLine(pos - axis, pos + axis, Color.red);
                 Vector3 perp = ikJoint.baseTransform.Rotation * ikJoint.perpendicularAxis;
                 DrawTools.DrawLine(pos, pos + perp, Color.yellow);
-                Vector3 perpmoved = ikJoint.movingTransform2.Rotation * ikJoint.perpendicularAxis;
+                Vector3 perpmoved = ikJoint.movingTransform.Rotation * ikJoint.perpendicularAxis;
                 DrawTools.DrawLine(pos, pos + perpmoved, Color.green);
             }
 
             if (effector != null)
             {
-                DrawTools.DrawTransform(effector2);
+                DrawTools.DrawTransform(effector);
             }
-        }
-
-        private GameObject InstantiateEffector(Part part)
-        {
-            GameObject effector = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            effector.name = $"{part.partInfo.name} (IKEffector)";
-            UnityEngine.Object.Destroy(effector.GetComponent<Collider>());
-            effector.GetComponent<MeshRenderer>().material = IKJoint2.ServoMaterial;
-            return effector;
         }
     }
 }

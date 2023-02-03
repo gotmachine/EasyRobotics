@@ -1,14 +1,19 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using UnityEngine;
+using static KSP.UI.Screens.RDNode;
 
 namespace EasyRobotics
 {
     /// <summary>
-    /// Unity Transform alike class that support only pos/rot (not scale) and a no-siblings
-    /// parent-child hierarchy (each transform can only have one child transform)
+    /// Unity Transform alike class that support only position and rotation (not scale)
+    /// and a no-siblings parent-child hierarchy (a transform can only have a single child)
     /// </summary>
     public class BasicTransform
     {
+        public string name;
+
         private Vector3 _localPosition;
         private Quaternion _localRotation;
 
@@ -18,15 +23,16 @@ namespace EasyRobotics
         private bool _worldIsDirty;
 
         private BasicTransform _parent;
-        private BasicTransform _child;
+
+        private List<BasicTransform> _chain;
 
         /// <summary>
         /// Instantiate a transform with the specified parent (or null to make it a root transform)
         /// </summary>
         public BasicTransform(BasicTransform parent)
         {
-            Parent = parent;
-            SetDirty();
+            SetParent(parent, out _);
+            _worldIsDirty = true;
         }
 
         /// <summary>
@@ -39,7 +45,7 @@ namespace EasyRobotics
         /// <param name="isLocalPosRot">if true, position/rotation are local (relative to parent), if false, position/rotation are in world space</param>
         public BasicTransform(BasicTransform parent, Vector3 position, Quaternion rotation, bool isLocalPosRot = false)
         {
-            Parent = parent;
+            SetParent(parent, out _);
 
             if (isLocalPosRot || parent == null)
             {
@@ -54,7 +60,7 @@ namespace EasyRobotics
 
             _localRotation.Normalize();
 
-            SetDirty();
+            _worldIsDirty = true;
         }
 
         /// <summary>
@@ -66,7 +72,7 @@ namespace EasyRobotics
             set
             {
                 _localPosition = value;
-                SetDirty();
+                _worldIsDirty = true;
             }
         }
 
@@ -79,7 +85,7 @@ namespace EasyRobotics
             set
             {
                 _localRotation = value.normalized;
-                SetDirty();
+                _worldIsDirty = true;
             }
         }
 
@@ -90,9 +96,7 @@ namespace EasyRobotics
         {
             get
             {
-                //if (_worldIsDirty)
-                    UpdateWorldPosAndRot();
-
+                UpdateWorldPosAndRot();
                 return _worldPosition;
             }
             set
@@ -102,7 +106,7 @@ namespace EasyRobotics
                 else
                     _localPosition = _parent.Rotation.Inverse() * (value - _parent.Position);
 
-                SetDirty();
+                _worldIsDirty = true;
             }
         }
 
@@ -113,9 +117,7 @@ namespace EasyRobotics
         {
             get
             {
-                //if (_worldIsDirty)
-                    UpdateWorldPosAndRot();
-
+                UpdateWorldPosAndRot();
                 return _worldRotation;
             }
             set
@@ -127,7 +129,7 @@ namespace EasyRobotics
 
                 _localRotation.Normalize();
 
-                SetDirty();
+                _worldIsDirty = true;
             }
         }
 
@@ -137,38 +139,19 @@ namespace EasyRobotics
 
 
         /// <summary>
-        /// Current parent. Setter will reset local position/rotation to zero/identity
+        /// Current parent.
         /// </summary>
-        public BasicTransform Parent
+        public BasicTransform Parent => _parent;
+
+        /// <summary>
+        /// Set parent, reseting local position/rotation to zero
+        /// </summary>
+        public void SetParent(BasicTransform parent)
         {
-            get
+            if (SetParent(parent, out _))
             {
-                return _parent;
-            }
-            set
-            {
-                if (_parent == value)
-                    return;
-
-                // if parent already had a child, detach it, keeping its world pos
-                if (_parent?._child != null)
-                {
-                    BasicTransform previousChild = _parent._child;
-                    Vector3 childPos = previousChild.Position;
-                    Quaternion childRot = previousChild.Rotation;
-                    previousChild._parent = null;
-                    previousChild.Position = childPos;
-                    previousChild.Rotation = childRot;
-                }
-
-                _parent = value;
-                if (value != null)
-                    _parent._child = this;
-
-                _localRotation = Quaternion.identity;
                 _localPosition = Vector3.zero;
-
-                SetDirty();
+                _localRotation = Quaternion.identity;
             }
         }
 
@@ -177,69 +160,153 @@ namespace EasyRobotics
         /// </summary>
         public void SetParentKeepWorldPosAndRot(BasicTransform parent)
         {
-            Vector3 worldPos = Position;
-            Quaternion worldRot = Rotation;
-            Parent = parent;
-            Position = worldPos;
-            Rotation = worldRot;
+            UpdateWorldPosAndRot();
+            Vector3 worldPos = _worldPosition;
+            Quaternion worldRot = _worldRotation;
+            if (SetParent(parent, out _))
+            {
+                SetPosAndRot(worldPos, worldRot);
+            }
+
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void SetDirtyIfNeeded()
+        public void SetPosAndRot(Vector3 position, Quaternion rotation)
         {
-            if (_worldIsDirty)
-                return;
-
-            SetDirty();
+            if (_parent == null)
+            {
+                _localPosition = position;
+                _worldPosition = position;
+                rotation.Normalize();
+                _localRotation = rotation;
+                _worldRotation = rotation;
+            }
+            else
+            {
+                Quaternion parentInverseRotation = _parent.Rotation.Inverse();
+                _localPosition = parentInverseRotation * (position - _parent.Position);
+                _localRotation = parentInverseRotation * rotation;
+                _localRotation.Normalize();
+                _worldIsDirty = true;
+            }
         }
 
-        private void SetDirty()
+        private int ChainIndex
         {
+            get
+            {
+                if (_chain == null)
+                    return 0;
+
+                int i = _chain.Count;
+                while (i-- > 0)
+                    if (_chain[i] == this)
+                        return i;
+
+                throw new Exception("Invalid chain state");
+            }
+        }
+
+        private bool SetParent(BasicTransform newParent, out BasicTransform detachedRoot)
+        {
+            detachedRoot = null;
+
+            if (_parent == newParent)
+                return false;
+
+            if (newParent != null)
+            {
+                List<BasicTransform> newParentChain;
+                // if parent is a root with no child, it might not have a chain, so instantiate it
+                if (newParent._chain == null)
+                {
+                    newParentChain = new List<BasicTransform> { newParent };
+                    newParent._chain = newParentChain;
+                }
+                // if parent has child(s), we need to detach them as a new hierarchy
+                else
+                {
+                    newParentChain = newParent._chain;
+                    int parentIndex = newParent.ChainIndex;
+                    if (parentIndex < newParentChain.Count - 1)
+                    {
+                        int newRootIndex = parentIndex + 1;
+                        int childCount = newParentChain.Count - newRootIndex;
+                        List<BasicTransform> newChain = newParentChain.GetRange(newRootIndex, childCount);
+                        newParentChain.RemoveRange(newRootIndex, childCount);
+                        foreach (BasicTransform newChainItem in newChain)
+                            newChainItem._chain = newChain;
+                        detachedRoot = newChain[0];
+                        detachedRoot._parent = null;
+                    }
+                }
+
+                // if this is a root with no child, just add it at the end of the parent chain
+                if (_chain == null)
+                {
+                    newParentChain.Add(this);
+                    _chain = newParentChain;
+                }
+                // else move this and all childs from the current chain to the new parent chain
+                else
+                {
+                    int chainIndex = ChainIndex;
+                    List<BasicTransform> currentChain = _chain;
+                    for (int i = chainIndex; i < currentChain.Count; i++)
+                    {
+                        BasicTransform transformToMove = currentChain[i];
+                        newParentChain.Add(transformToMove);
+                        transformToMove._chain = newParentChain;
+                    }
+                    currentChain.RemoveRange(chainIndex, currentChain.Count - chainIndex);
+
+                }
+            }
+            // if new parent is null and this has a parent, detach it and all childs in a new
+            // chain and remove them from the parent chain.
+            else if (_chain != null && _parent != null)
+            {
+                int chainIndex = ChainIndex;
+                int childCount = _chain.Count - chainIndex;
+                List<BasicTransform> newChain = _chain.GetRange(chainIndex, childCount);
+                foreach (BasicTransform newChainItem in newChain)
+                    newChainItem._chain = newChain;
+                _chain.RemoveRange(chainIndex, childCount);
+            }
+
+            _parent = newParent;
             _worldIsDirty = true;
 
-            BasicTransform child = _child;
-            while (child != null)
-            {
-                _child._worldIsDirty = true;
-                child = child._child;
-            }
+            return true;
         }
 
         private void UpdateWorldPosAndRot()
         {
-            BasicTransform next = this;
-            while (next._parent != null)
+            bool hasChain = _chain != null;
+            BasicTransform root = hasChain ? _chain[0] : this;
+            bool isDirty = root._worldIsDirty;
+            if (isDirty)
             {
-                next = next._parent;
+                root._worldPosition = root._localPosition;
+                root._worldRotation = root._localRotation;
+                root._worldIsDirty = false;
             }
 
-            bool isDirty = next._worldIsDirty;
+            if (!hasChain)
+                return;
 
-            while(true)
+            int count = _chain.Count;
+            for (int i = 1; i < count; i++)
             {
-                //if (isDirty || next._worldIsDirty)
-                //{
+                BasicTransform current = _chain[i];
+                if (isDirty || current._worldIsDirty)
+                {
                     isDirty = true;
-                    BasicTransform parent = next._parent;
-                    if (parent == null)
-                    {
-                        next._worldPosition = next._localPosition;
-                        next._worldRotation = next._localRotation;
-                    }
-                    else
-                    {
-                        next._worldPosition = parent._worldPosition + parent._worldRotation * next._localPosition;
-                        next._worldRotation = parent._worldRotation * next._localRotation;
-                        next._worldRotation.Normalize();
-                    }
-
-                    next._worldIsDirty = false;
-                //}
-
-                if (next == this)
-                    return;
-
-                next = next._child;
+                    BasicTransform parent = current._parent;
+                    current._worldPosition = parent._worldPosition + parent._worldRotation * current._localPosition;
+                    current._worldRotation = parent._worldRotation * current._localRotation;
+                    current._worldRotation.Normalize();
+                    current._worldIsDirty = false;
+                }
             }
         }
     }

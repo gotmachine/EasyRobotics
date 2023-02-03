@@ -22,7 +22,6 @@ namespace EasyRobotics
         public BasicTransform baseTransform;
         public BasicTransform movingTransform2;
         public BaseServo servo;
-        public bool previousInChainAttachedByMovingPart;
 
         public Transform movingTransform;
 
