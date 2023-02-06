@@ -22,8 +22,12 @@ namespace EasyRobotics
 
         private bool _worldIsDirty;
 
+
         private BasicTransform _parent;
 
+        /// <summary>
+        /// Shared reference to all transforms in a parent-child chain, with the root as first item
+        /// </summary>
         private List<BasicTransform> _chain;
 
         /// <summary>
@@ -197,8 +201,7 @@ namespace EasyRobotics
                 if (_chain == null)
                     return 0;
 
-                int i = _chain.Count;
-                while (i-- > 0)
+                for (int i = _chain.Count; i-- > 0;)
                     if (_chain[i] == this)
                         return i;
 
@@ -261,16 +264,17 @@ namespace EasyRobotics
 
                 }
             }
-            // if new parent is null and this has a parent, detach it and all childs in a new
+            // if new parent is null and this has a parent, detach ourselves and all childs in a new
             // chain and remove them from the parent chain.
             else if (_chain != null && _parent != null)
             {
+                List<BasicTransform> parentChain = _chain;
                 int chainIndex = ChainIndex;
-                int childCount = _chain.Count - chainIndex;
-                List<BasicTransform> newChain = _chain.GetRange(chainIndex, childCount);
+                int childCount = parentChain.Count - chainIndex;
+                List<BasicTransform> newChain = parentChain.GetRange(chainIndex, childCount);
                 foreach (BasicTransform newChainItem in newChain)
                     newChainItem._chain = newChain;
-                _chain.RemoveRange(chainIndex, childCount);
+                parentChain.RemoveRange(chainIndex, childCount);
             }
 
             _parent = newParent;

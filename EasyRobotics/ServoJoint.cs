@@ -17,7 +17,7 @@ using static SoftMasking.SoftMask;
 
 namespace EasyRobotics
 {
-    public class IKJoint4
+    public class ServoJoint
     {
         public BasicTransform baseTransform;
         public BasicTransform movingTransform;
@@ -29,6 +29,7 @@ namespace EasyRobotics
         public Vector3 axis; // local space
         public Vector3 perpendicularAxis;
         public bool rotateToDirection;
+        public bool isInverted;
 
         private float ServoAngle
         {
@@ -54,15 +55,23 @@ namespace EasyRobotics
             }
         }
 
-        public IKJoint4(BaseServo servo)
+        public ServoJoint(BaseServo servo)
         {
             this.servo = servo;
             servoTargetAngle = servo.Fields["targetAngle"];
             servoSoftMinMaxAngles = servo.Fields["softMinMaxAngles"];
-            axis = servo.GetMainAxis();
-            perpendicularAxis = Perpendicular(axis);
-            baseTransform = new BasicTransform(null);
+            UpdateAxis();
+            baseTransform = new BasicTransform(null, servo.transform.position, servo.transform.rotation);
             movingTransform = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoAngle, axis), true);
+        }
+
+        public void UpdateAxis()
+        {
+            axis = servo.GetMainAxis();
+            if (isInverted)
+                axis *= -1f;
+
+            perpendicularAxis = Perpendicular(axis);
         }
 
         public void UpdateDirection(BasicTransform effector, Transform target)
@@ -126,6 +135,25 @@ namespace EasyRobotics
             UpdateDirection(effector, target);
             ConstrainToAxis();
             ConstrainToMinMaxAngle();
+        }
+
+        public void SyncWithPartTransform()
+        {
+            Transform partTransform = servo.part.transform;
+            baseTransform.SetPosAndRot(partTransform.position, partTransform.rotation);
+            movingTransform.LocalRotation = Quaternion.AngleAxis(ServoAngle, axis);
+        }
+
+        public void SyncWithPartOrg()
+        {
+            Part part = servo.part;
+            Transform vesselTransform = part.vessel.transform;
+
+            Vector3 pos = part.orgPos + vesselTransform.position;
+            Quaternion rot = part.orgRot * vesselTransform.rotation;
+            baseTransform.SetPosAndRot(pos, rot);
+
+            movingTransform.LocalRotation = Quaternion.AngleAxis(ServoAngle, axis);
         }
 
         private Vector3 Perpendicular(Vector3 vec)

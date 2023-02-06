@@ -21,10 +21,10 @@ namespace EasyRobotics
             Active
         }
 
-        private List<IKJoint4> joints = new List<IKJoint4>();
+        private List<ServoJoint> joints = new List<ServoJoint>();
         private List<BaseServo> servos = new List<BaseServo>();
 
-        private IKJoint4 rootJoint;
+        private ServoJoint rootJoint;
 
         private Part effectorPart;
         private BasicTransform effector;
@@ -64,7 +64,7 @@ namespace EasyRobotics
         [KSPEvent(guiName = "Iterate", active = true, guiActive = true, guiActiveEditor = true)]
         public void Iterate()
         {
-            foreach (IKJoint4 ikJoint in joints)
+            foreach (ServoJoint ikJoint in joints)
             {
                 ikJoint.Evaluate(effector, target);
             }
@@ -105,7 +105,7 @@ namespace EasyRobotics
             for (int i = 0; i < servos.Count; i++)
             {
                 BaseServo servo = servos[i];
-                IKJoint4 joint = new IKJoint4(servo);
+                ServoJoint joint = new ServoJoint(servo);
                 joints.Add(joint);
                 if (i > 0)
                 {
@@ -120,7 +120,7 @@ namespace EasyRobotics
 
             for (int i = joints.Count - 1; i >= 0; i--)
             {
-                IKJoint4 joint = joints[i];
+                ServoJoint joint = joints[i];
                 joint.baseTransform.name = $"IKJoint #{i} ({joint.servo.part.partInfo.name})";
                 joint.movingTransform.name = $"IKJoint #{i} (MovingTransform)";
                 joint.baseTransform.Position = joint.servo.transform.position;
@@ -265,7 +265,7 @@ namespace EasyRobotics
                                 BaseServo servo = part.FindModuleImplementing<BaseServo>();
                                 if (servo != null)
                                 {
-                                    IKJoint4 joint = joints.Find(p => p.servo == servo);
+                                    ServoJoint joint = joints.Find(p => p.servo == servo);
                                     if (joint != null)
                                     {
                                         joint.rotateToDirection = !joint.rotateToDirection;
@@ -286,7 +286,7 @@ namespace EasyRobotics
                     }
 
 
-                    foreach (IKJoint4 ikJoint in joints)
+                    foreach (ServoJoint ikJoint in joints)
                     {
                         ikJoint.Evaluate(effector, target);
                     }
@@ -299,7 +299,7 @@ namespace EasyRobotics
 
         private void OnRenderObject()
         {
-            foreach (IKJoint4 ikJoint in joints)
+            foreach (ServoJoint ikJoint in joints)
             {
                 Vector3 pos = ikJoint.baseTransform.Position;
                 Vector3 axis = ikJoint.baseTransform.Rotation * ikJoint.axis * 0.5f;
