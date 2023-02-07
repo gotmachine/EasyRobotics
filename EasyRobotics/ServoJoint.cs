@@ -74,7 +74,7 @@ namespace EasyRobotics
             perpendicularAxis = Perpendicular(axis);
         }
 
-        public void UpdateDirection(BasicTransform effector, Transform target)
+        public void UpdateDirection(BasicTransform effector, BasicTransform target)
         {
             // CCDIK step 1 : rotate ignoring all constraints
             if (rotateToDirection)
@@ -84,14 +84,13 @@ namespace EasyRobotics
                 // while other servos are matching target direction
 
 
-                movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.up) * movingTransform.Rotation;
+                movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
             }
             else
             {
                 // Point the effector towards the target
-                Vector3 targetPosition = target.position + target.up;
                 Vector3 directionToEffector = effector.Position - baseTransform.Position;
-                Vector3 directionToTarget = target.position - baseTransform.Position;
+                Vector3 directionToTarget = target.Position - baseTransform.Position;
                 Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
                 movingTransform.Rotation = rotationOffset * movingTransform.Rotation;
             }
@@ -129,7 +128,7 @@ namespace EasyRobotics
             ServoAngle = requestedAngle;
         }
 
-        public void Evaluate(BasicTransform effector, Transform target)
+        public void Evaluate(BasicTransform effector, BasicTransform target)
         {
             // CCDIK step 1 : rotate ignoring all constraints
             UpdateDirection(effector, target);

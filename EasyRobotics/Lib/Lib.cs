@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace EasyRobotics
 {
-    public static class Utility
+    public static class Lib
     {
         public static Func<S, T> CreateGetter<S, T>(FieldInfo field)
         {
@@ -44,6 +44,18 @@ namespace EasyRobotics
             }
             gen.Emit(OpCodes.Ret);
             return (Action<S, T>)setterMethod.CreateDelegate(typeof(Action<S, T>));
+        }
+
+        public static void SetGUIActive(this BaseField baseField, bool enabled)
+        {
+            baseField._guiActive = enabled;
+            baseField._guiActiveEditor = enabled;
+        }
+
+        public static void SetGUIActive(this BaseEvent baseEvent, bool enabled)
+        {
+            baseEvent.guiActive = enabled;
+            baseEvent.guiActiveEditor = enabled;
         }
     }
 }

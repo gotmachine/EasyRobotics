@@ -70,24 +70,18 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="DrawTools.cs" />
-    <Compile Include="IKJoint.cs" />
+    <Compile Include="Lib\DrawTools.cs" />
     <Compile Include="ServoJoint.cs" />
-    <Compile Include="IKJoint3.cs" />
-    <Compile Include="IKJoint2.cs" />
     <Compile Include="BasicTransform.cs" />
     <Compile Include="ModuleEasyRobotics.cs" />
-    <Compile Include="ModuleEasyRobotics2.cs" />
-    <Compile Include="ModuleEasyRobotics4.cs" />
-    <Compile Include="ModuleEasyRobotics3.cs" />
-    <Compile Include="ModuleEasyRobotics5.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="UnityObjectExtensions.cs" />
-    <Compile Include="Utility.cs" />
+    <Compile Include="Lib\UnityObjectExtensions.cs" />
+    <Compile Include="Lib\Lib.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="AfterBuild">
     <CallTarget Condition="'$(Configuration)'=='Debug'" Targets="CopyToKSP" />

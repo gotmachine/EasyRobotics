@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace KSPCommunityFixes
+namespace EasyRobotics
 {
 #pragma warning disable IDE0041 // Use 'is null' check
     static class UnityObjectExtensions
