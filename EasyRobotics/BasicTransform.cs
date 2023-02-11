@@ -137,6 +137,13 @@ namespace EasyRobotics
             }
         }
 
+        public void GetPosAndRot(out Vector3 position, out Quaternion rotation)
+        {
+            UpdateWorldPosAndRot();
+            position = _worldPosition;
+            rotation = _worldRotation;
+        }
+
         public Vector3 Up => Rotation * Vector3.up;
         public Vector3 Right => Rotation * Vector3.right;
         public Vector3 Forward => Rotation * Vector3.forward;
@@ -179,10 +186,7 @@ namespace EasyRobotics
             if (_parent == null)
             {
                 _localPosition = position;
-                _worldPosition = position;
-                rotation.Normalize();
-                _localRotation = rotation;
-                _worldRotation = rotation;
+                _localRotation = rotation.normalized;
             }
             else
             {
@@ -190,8 +194,9 @@ namespace EasyRobotics
                 _localPosition = parentInverseRotation * (position - _parent.Position);
                 _localRotation = parentInverseRotation * rotation;
                 _localRotation.Normalize();
-                _worldIsDirty = true;
             }
+
+            _worldIsDirty = true;
         }
 
         private int ChainIndex
