@@ -1,0 +1,5 @@
+- reselect last selected servo upon servo chain update
+- doesn't move when target/effector orientation has changed, only position is checked
+- Orientation tracking doesn't track orientation, just direction, leaving a free rotation
+  Actually, maybe there should be 3 modes, Position, Pos+Direction, Pos+Orientation
+- implement testing iteratively all IK solutions, testing 3 angles on each servo

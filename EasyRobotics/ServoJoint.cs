@@ -8,6 +8,7 @@ using Steamworks;
 using UnityEngine;
 using Vectrosity;
 using VehiclePhysics;
+using static EasyRobotics.ModuleEasyRobotics;
 using static KSP.UI.Screens.RDNode;
 using static SoftMasking.SoftMask;
 
@@ -19,7 +20,405 @@ using static SoftMasking.SoftMask;
 
 namespace EasyRobotics
 {
-    public class ServoJoint
+    public abstract class ServoJoint
+    {
+        public enum IkMode
+        {
+            Position,
+            Rotation
+        }
+
+        public enum Pose
+        {
+            Zero,
+            Neutral,
+            Positive,
+            Negative
+        }
+
+        public BasicTransform baseTransform;
+        public BasicTransform movingTransform;
+        public abstract BaseServo BaseServo { get; }
+        public bool IsAttachedByMovingPart { get; set; }
+
+        public abstract void OnModified(List<ServoJoint> ikChain);
+
+        public abstract void ExecuteIK(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint);
+
+        public abstract void SendRequestToServo();
+
+        public abstract void SyncWithServoTransform(bool baseOnly = false);
+
+        public abstract void SetIKPose(Pose pose);
+
+        public abstract bool ServoTargetReached();
+
+        public abstract void ShowGizmo(bool show);
+
+        public abstract void SyncGizmo();
+
+        public abstract void SetGizmoColor(Color color);
+
+
+
+        public abstract void OnDestroy();
+    }
+
+
+    public abstract class ServoJoint<T> : ServoJoint where T : BaseServo
+    {
+        public T servo;
+        public override BaseServo BaseServo => servo;
+    }
+
+    public interface IRotatingServoJoint
+    {
+        Vector3 Axis { get; }
+        Vector3 PerpendicularAxis { get; }
+        float ServoTargetAngle { get; }
+        ServoJoint.IkMode IkMode { get; set; }
+        void CycleIkMode();
+    }
+
+    public abstract class RotatingServoJoint<T> : ServoJoint<T>, IRotatingServoJoint where T : BaseServo
+    {
+        protected BaseField servoTargetAngleField;
+
+        public abstract float ServoTargetAngle { get; protected set; }
+
+        public abstract Vector2 ServoMinMaxAngle { get; }
+
+        public Vector3 Axis { get; protected set; }
+        public Vector3 PerpendicularAxis { get; protected set; }
+        public IkMode IkMode { get; set; } = IkMode.Position;
+        protected float requestedAngle;
+
+        public void CycleIkMode() => IkMode = IkMode == IkMode.Position ? IkMode.Rotation : IkMode.Position;
+
+        protected abstract bool AngleIsInverted { get; }
+
+        private GameObject gizmo;
+        private Material gizmoMaterial;
+        private Quaternion upToAxis;
+
+        public override void OnModified(List<ServoJoint> ikChain)
+        {
+            Axis = servo.GetMainAxis();
+
+            if (IsAttachedByMovingPart)
+                Axis *= -1f;
+
+            upToAxis = Quaternion.FromToRotation(Vector3.up, Axis);
+
+            //if (AngleIsInverted)
+            //    Axis *= -1f;
+
+            if (Mathf.Abs(Axis.x) > Mathf.Abs(Axis.z))
+                PerpendicularAxis = new Vector3(-Axis.y, Axis.x, 0f);
+            else
+                PerpendicularAxis = new Vector3(0f, -Axis.z, Axis.y);
+        }
+
+        public override void ExecuteIK(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+        {
+            // CCDIK step 1 : rotate ignoring axis/limits
+            if (IkMode == IkMode.Rotation && trackingConstraint != TrackingConstraint.Position)
+            {
+                if (trackingConstraint == TrackingConstraint.PositionAndRotation)
+                {
+                    // ???
+                    movingTransform.Rotation = (effector.Rotation.Inverse() * target.Rotation.Inverse()) * movingTransform.Rotation;
+                }
+                else if (trackingConstraint == TrackingConstraint.PositionAndDirection)
+                {
+                    // Point the effector along the target direction
+                    // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
+                    // while other servos are matching target direction
+                    movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
+                }
+            }
+            else
+            {
+                // Point the effector towards the target
+                Vector3 directionToEffector = effector.Position - baseTransform.Position;
+                Vector3 directionToTarget = target.Position - baseTransform.Position;
+                Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
+                movingTransform.Rotation = rotationOffset * movingTransform.Rotation;
+            }
+
+            // CCDIK step 2 : Constrain resulting rotation to axis
+            Vector3 from = movingTransform.Rotation * Axis;
+            Vector3 to = baseTransform.Rotation * Axis;
+            Quaternion correction = Quaternion.FromToRotation(from, to);
+            movingTransform.Rotation = correction * movingTransform.Rotation;
+
+            // CCDIK step 3 : Constrain to min/max angle
+            Vector3 baseDir = PerpendicularAxis;
+            Vector3 newDir = movingTransform.LocalRotation * PerpendicularAxis;
+            requestedAngle = Vector3.SignedAngle(baseDir, newDir, Axis);
+
+            Vector2 minMax = ServoMinMaxAngle;
+            float servoMinAngle = Math.Max(minMax.x, -179.99f);
+            float servoMaxAngle = Math.Min(minMax.y, 179.99f);
+
+            if (requestedAngle < servoMinAngle)
+                requestedAngle = servoMinAngle;
+            else if (requestedAngle > servoMaxAngle)
+                requestedAngle = servoMaxAngle;
+
+            movingTransform.LocalRotation = Quaternion.AngleAxis(requestedAngle, Axis);
+        }
+
+        public override void SendRequestToServo()
+        {
+            ServoTargetAngle = requestedAngle;
+        }
+
+        public override void SyncWithServoTransform(bool baseOnly = false)
+        {
+
+            Transform fixedTransform = IsAttachedByMovingPart ? servo.movingPartObject.transform : servo.part.transform;
+            baseTransform.SetPosAndRot(fixedTransform.position, fixedTransform.rotation);
+            if (!baseOnly)
+            {
+                movingTransform.LocalRotation = Quaternion.AngleAxis(servo.currentTransformAngle(), Axis);
+            }
+
+        }
+
+        public override bool ServoTargetReached()
+        {
+            // we probably want something a bit smarter here, BaseServo.IsMoving() ?
+            float currentAngle = servo.currentTransformAngle();
+            float requestAngle = ServoTargetAngle;
+            float diff = Math.Abs(currentAngle - requestAngle);
+
+            return diff < 1f || diff > 359f;
+        }
+
+        public override void SetIKPose(Pose pose)
+        {
+            Vector2 minMax = ServoMinMaxAngle;
+
+            if (pose == Pose.Zero)
+            {
+                requestedAngle = Mathf.Clamp(0f, minMax.x, minMax.y);
+            }
+            else
+            {
+                float totalAngle;
+                if (minMax.x > 0f)
+                    totalAngle = minMax.y - minMax.x;
+                else if (minMax.y < 0f)
+                    totalAngle = Mathf.Abs(minMax.x - minMax.y);
+                else
+                    totalAngle = Mathf.Abs(minMax.x) + minMax.y;
+
+                // set to neutral
+                if (pose == Pose.Neutral)
+                {
+                    requestedAngle = minMax.x + totalAngle * 0.5f;
+
+                }
+                else
+                {
+                    // clamp to ±120° from neutral
+                    float clampOffset = Mathf.Max(0f, (totalAngle - 240f) * 0.5f);
+                    if (pose == Pose.Negative)
+                        requestedAngle = minMax.x + clampOffset;
+                    else
+                        requestedAngle = minMax.y - clampOffset;
+                }
+            }
+
+            movingTransform.LocalRotation = Quaternion.AngleAxis(requestedAngle, Axis);
+
+        }
+
+        public override void ShowGizmo(bool show)
+        {
+            if (show)
+            {
+                if (gizmo.IsNullOrDestroyed())
+                    InstantiateGizmo();
+
+                gizmo.SetActive(true);
+            }
+            else
+            {
+                if (gizmo.IsNotNullOrDestroyed())
+                    gizmo.SetActive(false);
+            }
+        }
+
+        public override void SyncGizmo()
+        {
+            if (gizmo.IsNullOrDestroyed())
+                return;
+
+            baseTransform.GetPosAndRot(out Vector3 pos, out Quaternion rot);
+            gizmo.transform.SetPositionAndRotation(pos, rot * upToAxis);
+        }
+
+        public override void SetGizmoColor(Color color)
+        {
+            if (gizmo.IsNullOrDestroyed())
+                return;
+
+            gizmoMaterial.SetColor(Assets.BurnColorID, color);
+        }
+
+        public override void OnDestroy()
+        {
+            if (gizmo.IsNotNullOrDestroyed())
+                UnityEngine.Object.Destroy(gizmo);
+
+            gizmo = null;
+            gizmoMaterial = null;
+        }
+
+        private void InstantiateGizmo()
+        {
+            gizmo = UnityEngine.Object.Instantiate(Assets.RotationGizmoPrefab);
+            gizmo.transform.localScale = new Vector3(0.4f, 0.4f, 0.4f);
+            gizmoMaterial = gizmo.transform.GetChild(0).GetComponent<MeshRenderer>().material;
+        }
+    }
+
+    public sealed class RotationServoJoint : RotatingServoJoint<ModuleRoboticRotationServo>
+    {
+        public RotationServoJoint(ModuleRoboticRotationServo servo)
+        {
+            this.servo = servo;
+            servoTargetAngleField = servo.Fields[nameof(ModuleRoboticRotationServo.targetAngle)];
+            OnModified(null);
+            baseTransform = new BasicTransform(null, servo.transform.position, servo.transform.rotation);
+            movingTransform = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoTargetAngle, Axis), true);
+        }
+
+        protected override bool AngleIsInverted => servo.inverted;
+
+        public override Vector2 ServoMinMaxAngle => servo.softMinMaxAngles;
+
+        public override float ServoTargetAngle
+        {
+            get => servo.JointTargetAngle;
+            protected set => servoTargetAngleField.SetValue(value, servo);
+        }
+    }
+
+    public sealed class HingeServoJoint : RotatingServoJoint<ModuleRoboticServoHinge>
+    {
+        public HingeServoJoint(ModuleRoboticServoHinge servo)
+        {
+            this.servo = servo;
+            servoTargetAngleField = servo.Fields[nameof(ModuleRoboticServoHinge.targetAngle)];
+            OnModified(null);
+            baseTransform = new BasicTransform(null, servo.transform.position, servo.transform.rotation);
+            movingTransform = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoTargetAngle, Axis), true);
+        }
+
+        protected override bool AngleIsInverted => false;
+
+        public override Vector2 ServoMinMaxAngle => servo.softMinMaxAngles;
+
+        public override float ServoTargetAngle
+        {
+            get => servo.JointTargetAngle;
+            protected set => servoTargetAngleField.SetValue(value, servo);
+        }
+    }
+
+    //public class LinearServoJoint : ServoJoint<ModuleRoboticServoPiston>
+    //{
+    //    private ServoJoint root;
+    //    private BaseField servoTargetExtension;
+    //    private BaseField servSoftMinMaxExtension;
+    //    private int _axisIndex;
+
+    //    private float ServoTargetExtension
+    //    {
+    //        get => servo.targetExtension;
+    //        set => servoTargetExtension.SetValue(value, servo);
+    //    }
+
+    //    private Vector2 ServoMinMaxExtension => servo.softMinMaxExtension;
+
+    //    private float IKCurrentExtension
+    //    {
+    //        get => movingTransform.LocalPosition[_axisIndex];
+    //        set => movingTransform.LocalPosition = new Vector3 { [_axisIndex] = value };
+    //    }
+
+    //    private Vector3 IKWorldDir => (movingTransform.Rotation * movingTransform.LocalPosition).normalized;
+
+    //    private float requestedExtension;
+
+    //    public override void OnModified(List<ServoJoint> ikChain)
+    //    {
+    //        Vector3 axis = servo.GetMainAxis();
+    //        for (int i = 0; i < 3; i++)
+    //        {
+    //            if (axis[i] != 0f)
+    //            {
+    //                _axisIndex = i;
+    //                break;
+    //            }
+    //        }
+
+    //        if (ikChain.Count == 0)
+    //            root = null;
+    //        else
+    //            root = ikChain[0];
+    //    }
+
+    //    public override void ExecuteIK(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+    //    {
+    //        Vector3 rootPos = root.baseTransform.Position;
+    //        Vector3 rootToEffector = effector.Position - rootPos;
+    //        Vector3 rootToTarget = target.Position - rootPos;
+    //        float diff = rootToTarget.magnitude - rootToEffector.magnitude;
+    //        float servoAngle = Vector3.Angle(rootToTarget, IKWorldDir);
+    //        float angleFactor = servoAngle >= 0f ? 1f / Mathf.Cos(servoAngle) : 1f;
+    //        if (diff > 0f)
+    //        {
+    //            // effector can't reach target
+    //            float maxReach = ServoMinMaxExtension.y - IKCurrentExtension;
+    //            requestedExtension = Mathf.Min(IKCurrentExtension, diff * angleFactor);
+    //            IKCurrentExtension = requestedExtension;
+    //        }
+    //        else
+    //        {
+    //            float maxReach = ServoMinMaxExtension.y - IKCurrentExtension;
+    //            // effector overshoot target
+    //        }
+
+
+    //    }
+
+    //    public override void SendRequestToServo()
+    //    {
+    //        ServoTargetExtension = requestedExtension;
+    //    }
+
+    //    public override void SyncWithServoTransform(bool baseOnly = false)
+    //    {
+    //        Transform fixedTransform = IsAttachedByMovingPart ? servo.movingPartObject.transform : servo.part.transform;
+    //        baseTransform.SetPosAndRot(fixedTransform.position, fixedTransform.rotation);
+    //        if (!baseOnly)
+    //        {
+    //            movingTransform.LocalPosition = new Vector3 { [_axisIndex] = servo.currentExtension };
+    //        }
+    //    }
+
+    //    public override void SetIKPose(Pose pose)
+    //    {
+
+    //    }
+    //}
+
+    /*
+    public class ServoJointOld
     {
         public BasicTransform baseTransform;
         public BasicTransform movingTransform;
@@ -63,7 +462,7 @@ namespace EasyRobotics
             }
         }
 
-        public ServoJoint(BaseServo servo)
+        public ServoJointOld(BaseServo servo)
         {
             this.servo = servo;
             servoTargetAngle = servo.Fields["targetAngle"];
@@ -87,7 +486,6 @@ namespace EasyRobotics
         private const float overlayRadius = 0.25f;
         private const int segmentsInAxisCircle = 16;
         private static Vector3[] axisOverlayDefaultPoints = new Vector3[segmentsInAxisCircle * 2 + 2];
-
 
         public bool OverlayEnabled
         {
@@ -146,17 +544,23 @@ namespace EasyRobotics
             VectorLine.Destroy(ref axisOverlay);
         }
 
-        public void UpdateDirection(BasicTransform effector, BasicTransform target)
+        public void UpdateDirection(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
         {
-            // CCDIK step 1 : rotate ignoring all constraints
+            // CCDIK step 1 : rotate ignoring axis/limits
             if (rotateToDirection)
             {
-                // Point the effector along the target direction
-                // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
-                // while other servos are matching target direction
-
-
-                movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
+                if (trackingConstraint == TrackingConstraint.PositionAndRotation)
+                {
+                    // ???
+                    movingTransform.Rotation = (effector.Rotation.Inverse() * target.Rotation.Inverse()) * movingTransform.Rotation;
+                }
+                else if (trackingConstraint == TrackingConstraint.PositionAndDirection)
+                {
+                    // Point the effector along the target direction
+                    // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
+                    // while other servos are matching target direction
+                    movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
+                }
             }
             else
             {
@@ -212,10 +616,10 @@ namespace EasyRobotics
             ServoAngle = requestedAngle;
         }
 
-        public void Evaluate(BasicTransform effector, BasicTransform target)
+        public void Evaluate(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
         {
             // CCDIK step 1 : rotate ignoring all constraints
-            UpdateDirection(effector, target);
+            UpdateDirection(effector, target, trackingConstraint);
             ConstrainToAxis();
             ConstrainToMinMaxAngle();
         }
@@ -282,4 +686,5 @@ namespace EasyRobotics
                 return new Vector3(0f, -vec.z, vec.y);
         }
     }
+    */
 }

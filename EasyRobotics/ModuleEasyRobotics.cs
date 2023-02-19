@@ -48,25 +48,30 @@ using Expansions.Serenity;
 using System;
 using System.Collections.Generic;
 using System.IO.Ports;
+using System.Reflection;
 using System.Security.Cryptography;
 using UnityEngine;
 using Vectrosity;
 using static EasyRobotics.ModuleEasyRobotics;
+using static EasyRobotics.ServoJoint;
 using static EdyCommonTools.Spline;
 
 namespace EasyRobotics
 {
     public class ModuleEasyRobotics : PartModule, IShipConstructIDChanges
     {
+
+
+
         public struct PersistedServoJoint
         {
             public uint partId;
-            public bool rotateToDirection;
+            public IkMode ikMode;
 
-            public PersistedServoJoint(uint partId, bool rotateToDirection)
+            public PersistedServoJoint(uint partId, IkMode ikMode)
             {
                 this.partId = partId;
-                this.rotateToDirection = rotateToDirection;
+                this.ikMode = ikMode;
             }
         }
 
@@ -87,9 +92,10 @@ namespace EasyRobotics
         private BasicTransform target;
         private Vector3 targetObjectPosOffset;
         private Quaternion targetObjectRotOffset;
+        private bool usesRotationConstraints;
 
-        private Transform effectorGizmo;
-        private Transform targetGizmo;
+        private GameObject effectorGizmo;
+        private GameObject targetGizmo;
 
         private bool chainGizmosEnabled = true;
         private bool effectorAndTargetGizmosEnabled = true;
@@ -266,6 +272,32 @@ namespace EasyRobotics
         public TargetMode targetMode;
         public enum TargetMode { Part, Surface }
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)]
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        public int pawTrackingConstraint = (int)TrackingConstraint.PositionAndDirection;
+        private BaseField pawTrackingConstraint_Field;
+        private UI_ChooseOption pawTrackingConstraint_UIControl;
+        public enum TrackingConstraint { Position = 0, PositionAndDirection = 1, PositionAndRotation = 2}
+        private static string LOC_PAW_CONSTRAINT = "Constraint";
+        private static string LOC_PAW_POSITION = "Position";
+        private static string LOC_PAW_POSANDDIR = "Pos+Direction";
+        private static string LOC_PAW_POSANDROT = "Pos+Rotation";
+
+        private TrackingConstraint Constraint
+        {
+            get => (TrackingConstraint)pawTrackingConstraint;
+            set
+            {
+                if (!usesRotationConstraints && value != TrackingConstraint.Position)
+                    value = TrackingConstraint.Position;
+            }
+        }
+
+        public void TrackingConstraintCheckValid()
+        {
+
+        }
+
         public override void OnAwake()
         {
             // onPartPersistentIdChanged can be called before OnStart(), so hook it right now
@@ -332,6 +364,13 @@ namespace EasyRobotics
                         baseField.guiName = LOC_PAW_TARGETOFFSET;
                         baseField.OnValueModified += OnUITargetPositionChanged;
                         pawTargetOffset_Field = baseField;
+                        break;
+                    case nameof(pawTrackingConstraint):
+                        baseField.group = executionGroup;
+                        baseField.guiName = LOC_PAW_CONSTRAINT;
+                        baseField.OnValueModified += OnUITrackingConstraintChanged;
+                        pawTrackingConstraint_Field = baseField;
+                        pawTrackingConstraint_UIControl = (UI_ChooseOption)(isEditor ? baseField.uiControlEditor : baseField.uiControlFlight);
                         break;
                 }
             }
@@ -420,8 +459,14 @@ namespace EasyRobotics
                         if (servo.IsNullRef())
                             continue;
 
-                        ServoJoint newJoint = new ServoJoint(servo);
-                        newJoint.rotateToDirection = persistedServoJoint.rotateToDirection;
+                        ServoJoint newJoint;
+                        if (servo is ModuleRoboticRotationServo rotationServo)
+                            newJoint = new RotationServoJoint(rotationServo) { IkMode = persistedServoJoint.ikMode };
+                        else if (servo is ModuleRoboticServoHinge hingeServo)
+                            newJoint = new HingeServoJoint(hingeServo) { IkMode = persistedServoJoint.ikMode };
+                        else
+                            continue;
+
                         ikChain.Add(newJoint);
                     }
 
@@ -453,16 +498,39 @@ namespace EasyRobotics
                 GameEvents.onEditorPartEvent.Add(OnEditorPartEvent);
             }
 
+            GameEvents.onPartActionUIShown.Add(OnPAWShown);
+            GameEvents.onPartActionUIDismiss.Add(OnPAWDismiss);
+
             started = true;
+        }
+
+        private void OnPAWDismiss(Part pawPart)
+        {
+            if (pawPart.RefNotEquals(part))
+                return;
+
+            ShowEffectorGizmo(false);
+            ShowTargetGizmo(false);
+            ShowChainGizmos(false);
+        }
+
+        private void OnPAWShown(UIPartActionWindow paw, Part pawPart)
+        {
+            if (pawPart.RefNotEquals(part))
+                return;
+
+            ShowEffectorGizmo(true);
+            ShowTargetGizmo(true);
+            ShowChainGizmos(true);
         }
 
         private void OnDestroy()
         {
             if (targetGizmo.IsNotNullOrDestroyed())
-                Destroy(targetGizmo.gameObject);
+                Destroy(targetGizmo);
 
             if (effectorGizmo.IsNotNullOrDestroyed())
-                Destroy(effectorGizmo.gameObject);
+                Destroy(effectorGizmo);
 
             GameEvents.onPartPersistentIdChanged.Remove(PartPersistentIdChanged);
             GameEvents.onPartWillDie.Remove(OnPartWillDie);
@@ -489,7 +557,11 @@ namespace EasyRobotics
                 for (int i = 0; i < ikChain.Count; i++)
                 {
                     ServoJoint servoJoint = ikChain[i];
-                    ikChainNode.AddValue(servoJoint.servo.part.persistentId.ToString(), servoJoint.rotateToDirection);
+                    if (servoJoint is IRotatingServoJoint rotatingJoint)
+                    {
+                        ikChainNode.AddValue(servoJoint.BaseServo.part.persistentId.ToString(), rotatingJoint.IkMode == IkMode.Rotation);
+                    }
+                    
                 }
             }
         }
@@ -526,10 +598,10 @@ namespace EasyRobotics
                     for (int j = 0; j < childNode.values.Count; j++)
                     {
                         ConfigNode.Value value = childNode.values[j];
-                        if (uint.TryParse(value.name, out uint id) && id != 0 && bool.TryParse(value.value, out bool rotateToDirection))
+                        if (uint.TryParse(value.name, out uint id) && id != 0 && bool.TryParse(value.value, out bool ikModeRotate))
                         {
                             persistedPartIdloading = true;
-                            persistedIkChainPartIds.Add(new PersistedServoJoint(id, rotateToDirection));
+                            persistedIkChainPartIds.Add(new PersistedServoJoint(id, ikModeRotate ? IkMode.Rotation : IkMode.Position));
                         }
                     }
                 }
@@ -579,7 +651,7 @@ namespace EasyRobotics
                 for (int i = persistedIkChainPartIds.Count; i-- > 0;)
                 {
                     if (persistedIkChainPartIds[i].partId == oldId)
-                        persistedIkChainPartIds[i] = new PersistedServoJoint(newId, persistedIkChainPartIds[i].rotateToDirection);
+                        persistedIkChainPartIds[i] = new PersistedServoJoint(newId, persistedIkChainPartIds[i].ikMode);
                 }
             }
         }
@@ -604,7 +676,7 @@ namespace EasyRobotics
                 for (int i = persistedIkChainPartIds.Count; i-- > 0;)
                 {
                     if (changedIDs.TryGetValue(persistedIkChainPartIds[i].partId, out newId))
-                        persistedIkChainPartIds[i] = new PersistedServoJoint(newId, persistedIkChainPartIds[i].rotateToDirection);
+                        persistedIkChainPartIds[i] = new PersistedServoJoint(newId, persistedIkChainPartIds[i].ikMode);
                 }
             }
         }
@@ -631,7 +703,7 @@ namespace EasyRobotics
             for (int i = ikChain.Count; i-- > 0;)
             {
                 ServoJoint servoJoint = ikChain[i];
-                if (ReferenceEquals(removedPart, servoJoint.servo.part))
+                if (ReferenceEquals(removedPart, servoJoint.BaseServo.part))
                 {
                     ikChain[i].OnDestroy();
                     ikChain.RemoveAt(i);
@@ -643,22 +715,23 @@ namespace EasyRobotics
 
         private void OnUISelectServo(object obj)
         {
-            uiSelectedServo?.servo.part.Highlight(false);
+            uiSelectedServo?.SetGizmoColor(Color.yellow);
 
             if (ikChain.Count == 0)
                 return;
 
             uiSelectedServo = ikChain[pawSelectedServoIndex];
+            uiSelectedServo.SetGizmoColor(Color.red);
             OnSelectedServoModeChanged();
         }
 
         private void OnUISelectedServoModeToggle()
         {
-            if (uiSelectedServo == null)
-                return;
-
-            uiSelectedServo.rotateToDirection = !uiSelectedServo.rotateToDirection;
-            OnSelectedServoModeChanged();
+            if (uiSelectedServo is IRotatingServoJoint rotatingServo)
+            {
+                rotatingServo.CycleIkMode();
+                OnSelectedServoModeChanged();
+            }
         }
 
         private void OnUISelectedServoRemove()
@@ -765,6 +838,21 @@ namespace EasyRobotics
             OnStatusChanged();
         }
 
+        private void OnUITrackingConstraintChanged(object newVal)
+        {
+            OnTrackingConstraintChanged();
+        }
+
+        private void OnTrackingConstraintChanged()
+        {
+            if (usesRotationConstraints)
+                pawTrackingConstraint_UIControl.options = new[] { LOC_PAW_POSITION, LOC_PAW_POSANDDIR, LOC_PAW_POSANDROT };
+            else
+                pawTrackingConstraint_UIControl.options = new[] { LOC_PAW_POSITION };
+
+
+        }
+
         private void OnTargetModeChanged()
         {
             switch (targetMode)
@@ -806,8 +894,38 @@ namespace EasyRobotics
 
         private void OnSelectedServoModeChanged()
         {
-            pawSelectedServoMode_Event.guiName = 
-                $"{LOC_PAW_SERVOMODE}: {(uiSelectedServo.rotateToDirection ? LOC_PAW_SERVOMODE_ROTATION : LOC_PAW_SERVOMODE_POSITION)}";
+            usesRotationConstraints = false;
+            for (int i = ikChain.Count; i-- > 0;)
+            {
+                if (ikChain[i] is IRotatingServoJoint rotatingJoint && rotatingJoint.IkMode == IkMode.Rotation)
+                {
+                    usesRotationConstraints = true;
+                    break;
+                }
+            }
+
+            if (usesRotationConstraints)
+            {
+                pawTrackingConstraint_UIControl.options = new[] { LOC_PAW_POSITION, LOC_PAW_POSANDDIR, LOC_PAW_POSANDROT };
+                if (pawTrackingConstraint == (int)TrackingConstraint.PositionAndDirection)
+                {
+                    pawTrackingConstraint_Field.SetValue((int)TrackingConstraint.Position, this);
+                }
+            }
+            else
+            {
+                pawTrackingConstraint_UIControl.options = new[] { LOC_PAW_POSITION };
+                if (pawTrackingConstraint == (int)TrackingConstraint.PositionAndDirection || pawTrackingConstraint == (int)TrackingConstraint.PositionAndRotation)
+                {
+                    pawTrackingConstraint_Field.SetValue((int)TrackingConstraint.Position, this);
+                }
+            }
+
+            if (uiSelectedServo is IRotatingServoJoint selectedRotating)
+            {
+                pawSelectedServoMode_Event.guiName =
+                    $"{LOC_PAW_SERVOMODE}: {(selectedRotating.IkMode == IkMode.Rotation ? LOC_PAW_SERVOMODE_ROTATION : LOC_PAW_SERVOMODE_POSITION)}";
+            }
         }
 
         private void OnJointListChanged(bool forcePAWUpdate, out string error)
@@ -848,7 +966,7 @@ namespace EasyRobotics
                 selectedIndex = Math.Min(pawSelectedServoIndex, jointCount - 1);
                 selectionOptions = new string[jointCount];
                 for (int i = 0; i < selectionOptions.Length; i++)
-                    selectionOptions[i] = ikChain[i].servo.part.partInfo.title;
+                    selectionOptions[i] = ikChain[i].BaseServo.part.partInfo.title;
 
                 pawSelectedServoIndex_Field.SetGUIActive(true);
                 pawSelectedServoMode_Event.SetGUIActive(true);
@@ -858,7 +976,7 @@ namespace EasyRobotics
             pawSelectedServoIndex_UIControl.options = selectionOptions;
             pawSelectedServoIndex_Field.SetValue(selectedIndex, this);
 
-            if (part.PartActionWindow != null && part.PartActionWindow.isActiveAndEnabled)
+            if (part.PartActionWindow.IsNotNullOrDestroyed() && part.PartActionWindow.isActiveAndEnabled)
                 part.PartActionWindow.displayDirty = true;
         }
 
@@ -878,7 +996,7 @@ namespace EasyRobotics
                 pawEffectorDir_Field.SetGUIActive(false);
                 pawEffectorOffset_Field.SetGUIActive(false);
 
-                EnableEffectorGizmo(false);
+                ShowEffectorGizmo(false);
 
                 if (effector != null)
                 {
@@ -895,7 +1013,7 @@ namespace EasyRobotics
                 pawEffectorOffset_Field.SetGUIActive(true);
 
                 effectorAndTargetGizmosEnabled = true;
-                EnableEffectorGizmo(true);
+                ShowEffectorGizmo(true);
 
                 virtualEffectorDockingNode = GetVirtualAttachNodeForDockingOrGrappleNode(effectorPart);
 
@@ -923,7 +1041,7 @@ namespace EasyRobotics
 
             pawEffectorSelect_Event.guiName = $"{LOC_PAW_EFFECTORSELECT}{(effectorPart != null ? $": {effectorPart.partInfo.title}" : string.Empty)}";
 
-            if (part.PartActionWindow != null && part.PartActionWindow.isActiveAndEnabled)
+            if (part.PartActionWindow.IsNotNullOrDestroyed() && part.PartActionWindow.isActiveAndEnabled)
                 part.PartActionWindow.displayDirty = true;
 
             configurationIsValid = false;
@@ -948,7 +1066,7 @@ namespace EasyRobotics
                 target = null;
                 targetObject = null;
 
-                EnableTargetGizmo(false);
+                ShowTargetGizmo(false);
 
                 if (trackingEnabled && controlMode == ControlMode.Target && targetMode == TargetMode.Part)
                 {
@@ -965,7 +1083,7 @@ namespace EasyRobotics
                 pawTargetOffset_Field.SetGUIActive(true);
 
                 effectorAndTargetGizmosEnabled = true;
-                EnableTargetGizmo(true);
+                ShowTargetGizmo(true);
 
                 virtualTargetDockingNode = GetVirtualAttachNodeForDockingOrGrappleNode(targetPart);
 
@@ -993,7 +1111,7 @@ namespace EasyRobotics
 
             pawTargetSelect_Event.guiName = $"{LOC_PAW_TARGET}{(targetPart.IsNotNullOrDestroyed() ? $": {targetPart.partInfo.title}" : string.Empty)}";
 
-            if (part.PartActionWindow != null && part.PartActionWindow.isActiveAndEnabled)
+            if (part.PartActionWindow.IsNotNullOrDestroyed() && part.PartActionWindow.isActiveAndEnabled)
                 part.PartActionWindow.displayDirty = true;
 
             OnStatusChanged();
@@ -1204,7 +1322,7 @@ namespace EasyRobotics
             {
                 ServoJoint joint = ikChain[i];
                 lastIKChain.Add(joint);
-                jointDict.Add(joint.servo.part, joint);
+                jointDict.Add(joint.BaseServo.part, joint);
             }
 
             // and clear the original list
@@ -1299,19 +1417,23 @@ namespace EasyRobotics
             // - setup parent/child relationships
             // - check for servo inversion
             // - set servos and effector pos/rot
+            usesRotationConstraints = false;
             for (int i = jointCount; i-- > 0;)
             {
                 ServoJoint joint = ikChain[i];
+
+                if (joint is IRotatingServoJoint rotatingJoint && rotatingJoint.IkMode == IkMode.Rotation)
+                    usesRotationConstraints = true;
 
                 if (i > 0)
                     ikChain[i - 1].baseTransform.SetParent(joint.movingTransform);
 
                 // now check by which side each servo is attached
                 bool parentIsAttachedToMovingPart = false;
-                Part servoPart = joint.servo.part;
+                Part servoPart = joint.BaseServo.part;
                 Part parent = servoPart.parent;
 
-                foreach (AttachNode node in joint.servo.attachNodes)
+                foreach (AttachNode node in joint.BaseServo.attachNodes)
                 {
                     if (node.attachedPart == parent)
                     {
@@ -1322,7 +1444,7 @@ namespace EasyRobotics
 
                 if (servoPart.srfAttachNode != null && servoPart.srfAttachNode.attachedPart == parent)
                 {
-                    foreach (string mesh in joint.servo.servoSrfMeshes)
+                    foreach (string mesh in joint.BaseServo.servoSrfMeshes)
                     {
                         if (mesh == servoPart.srfAttachNode.srfAttachMeshName)
                         {
@@ -1338,15 +1460,9 @@ namespace EasyRobotics
                 // - if the servo chain is ordered "upward" (with the effector as parent) :
                 //   - if the servo moving part is connected to the child, joint is inverted
                 //   - if the servo moving part is connected to the parent, joint isn't inverted
-                joint.isInverted = effectorRelation == Relation.Child ? parentIsAttachedToMovingPart : !parentIsAttachedToMovingPart;
-
-                joint.UpdateAxis();
+                joint.IsAttachedByMovingPart = effectorRelation == Relation.Child ? parentIsAttachedToMovingPart : !parentIsAttachedToMovingPart;
+                joint.OnModified(ikChain);
                 joint.SyncWithServoTransform();
-
-                //if (HighLogic.LoadedSceneIsEditor)
-                //    joint.SyncWithPartTransform();
-                //else
-                //    joint.SyncWithPartOrg();
             }
 
             effector.SetParentKeepWorldPosAndRot(ikChain[0].movingTransform);
@@ -1473,17 +1589,10 @@ namespace EasyRobotics
             {
                 case SelectionMode.SelectServos:
                 {
-                    if (part == null)
+                    if (selectedPart.IsNullOrDestroyed())
                         break;
 
-                    BaseServo servo = selectedPart.FindModuleImplementing<BaseServo>();
-                    if (servo == null || !(servo is ModuleRoboticRotationServo || servo is ModuleRoboticServoHinge))
-                    {
-                        PostScreenMessage($"No rotation servo on <b>{selectedPart.partInfo.title}</b>", Color.yellow);
-                        break;
-                    }
-
-                    if (!TryAddServo(servo, out string message))
+                    if (!TryAddServo(selectedPart, out string message))
                     {
                         PostScreenMessage(message, Color.yellow);
                         break;
@@ -1494,7 +1603,7 @@ namespace EasyRobotics
                 }
                 case SelectionMode.SelectEffector:
                 {
-                    if (selectedPart == null)
+                    if (selectedPart.IsNullOrDestroyed())
                         break;
 
                     if (selectedPart == effectorPart)
@@ -1540,32 +1649,55 @@ namespace EasyRobotics
 
 
 
-        private bool TryAddServo(BaseServo servo, out string message)
+        private bool TryAddServo(Part potentialServoPart, out string message)
         {
+            BaseServo servo = potentialServoPart.FindModuleImplementing<BaseServo>();
+            if (servo.IsNullOrDestroyed())
+            {
+                message = $"No servo on <b>{potentialServoPart.partInfo.title}</b>";
+                return false;
+            }
+
             int i = ikChain.Count;
             while (i-- > 0)
             {
                 ServoJoint joint = ikChain[i];
-                if (joint.servo == servo)
+                if (joint.BaseServo == servo)
                 {
                     message = $"Servo <b>{servo.part.partInfo.title}</b> is already added";
                     return false;
                 }
 
-                if (joint.servo.part == effectorPart)
+                if (joint.BaseServo.part == effectorPart)
                 {
                     message = $"<b>{servo.part.partInfo.title}</b> is the effector";
                     return false;
                 }
             }
 
-            ServoJoint newJoint = new ServoJoint(servo);
+            ServoJoint newJoint;
+            if (servo is ModuleRoboticRotationServo rotationServo)
+            {
+                newJoint = new RotationServoJoint(rotationServo);
+            }
+            else if (servo is ModuleRoboticServoHinge hingeServo)
+            {
+                newJoint = new HingeServoJoint(hingeServo);
+            }
+            else
+            {
+                message = $"No rotation servo on <b>{potentialServoPart.partInfo.title}</b>";
+                return false;
+            }
+
             ikChain.Add(newJoint);
+            newJoint.ShowGizmo(true);
+            newJoint.SetGizmoColor(Color.red);
             OnJointListChanged(true, out string error);
             if (error != null && effectorPart.IsNotNullOrDestroyed())
                 PostScreenMessage(error, Color.red);
 
-            pawSelectedServoIndex_Field.SetValue(ikChain.Count - 1, this);
+            pawSelectedServoIndex_Field.SetValue(ikChain.IndexOf(newJoint), this);
             message = $"Servo <b>{servo.part.partInfo.title}</b> added";
             return true;
         }
@@ -1576,7 +1708,7 @@ namespace EasyRobotics
             while (i-- > 0)
             {
                 ServoJoint joint = ikChain[i];
-                if (joint.servo.part == selectedPart)
+                if (joint.BaseServo.part == selectedPart)
                 {
                     message = $"<b>{selectedPart.partInfo.title}</b> is a servo";
                     return false;
@@ -1601,86 +1733,48 @@ namespace EasyRobotics
             if (selectionMode != SelectionMode.None)
                 SelectionModeCheckInput();
 
-            if (uiSelectedServo != null)
-            {
-                if (uiSelectedServo.servo.IsNullOrDestroyed())
-                {
-                    uiSelectedServo = null;
-                }
-                else
-                {
-                    uiSelectedServo.servo.part.Highlight(Color.red);
-                }
-            }
+            //if (uiSelectedServo != null)
+            //{
+            //    if (uiSelectedServo.BaseServo.IsNullOrDestroyed())
+            //    {
+            //        uiSelectedServo = null;
+            //    }
+            //    else
+            //    {
+            //        uiSelectedServo.BaseServo.part.Highlight(Color.red);
+            //    }
+            //}
 
-            foreach (ServoJoint joint in ikChain)
-            {
-                if (joint != uiSelectedServo)
-                {
-                    joint.servo.part.Highlight(Color.yellow);
-                }
-
-                joint.OverlayEnabled = true;
-                joint.RenderOverlay();
-
-            }
+            //foreach (ServoJoint joint in ikChain)
+            //{
+            //    if (joint != uiSelectedServo)
+            //    {
+            //        joint.BaseServo.part.Highlight(Color.yellow);
+            //    }
+            //}
 
             if (effectorAndTargetGizmosEnabled)
             {
-                if (effectorGizmo.IsNotNullOrDestroyed() && effectorGizmo.gameObject.activeSelf)
+                if (effectorGizmo.IsNotNullOrDestroyed() && effectorGizmo.activeSelf)
                 {
                     effector.GetPosAndRot(out Vector3 pos, out Quaternion rot);
                     effectorGizmo.transform.SetPositionAndRotation(pos, rot);
                 }
 
-                if (targetGizmo.IsNotNullOrDestroyed() && targetGizmo.gameObject.activeSelf)
+                if (targetGizmo.IsNotNullOrDestroyed() && targetGizmo.activeSelf)
                 {
                     target.GetPosAndRot(out Vector3 pos, out Quaternion rot);
                     targetGizmo.transform.SetPositionAndRotation(pos, rot);
                 }
             }
-        }
 
-        private void OnRenderObject()
-        {
-            for (int i = 0; i < ikChain.Count; i++)
+            if (chainGizmosEnabled)
             {
-                ServoJoint ikJoint = ikChain[i];
-                Vector3 pos = ikJoint.baseTransform.Position;
-                Vector3 axis = ikJoint.baseTransform.Rotation * ikJoint.axis;
-                DrawTools.DrawCircle(pos, axis, Color.red, 0.35f);
-                Vector3 perp = ikJoint.baseTransform.Rotation * ikJoint.perpendicularAxis;
-                DrawTools.DrawLine(pos, pos + perp * 0.35f, Color.yellow);
-
-                if (configurationIsValid && i < ikChain.Count - 1)
+                for (int i = ikChain.Count; i-- > 0;)
                 {
-                    DrawTools.DrawLine(pos, ikChain[i + 1].baseTransform.Position, Color.blue);
+                    ikChain[i].SyncGizmo();
                 }
             }
-
-            //if (effector != null)
-            //{
-            //    Vector3 pos = effector.Position;
-            //    Quaternion rot = effector.Rotation;
-            //    Vector3 dir = rot * Vector3.up;
-            //    DrawTools.DrawArrow(pos - dir, dir, Color.green);
-            //    Vector3 forward = rot * new Vector3(0.0f, 0.0f, 0.25f);
-            //    Vector3 right = rot * new Vector3(0.25f, 0.0f, 0.0f);
-            //    DrawTools.DrawLine(pos + forward, pos - forward, Color.blue);
-            //    DrawTools.DrawLine(pos + right, pos - right, Color.red);
-            //}
-
-            //if (target != null)
-            //{
-            //    Vector3 pos = target.Position;
-            //    Quaternion rot = target.Rotation;
-            //    Vector3 dir = rot * Vector3.up;
-            //    DrawTools.DrawArrow(pos - dir, dir, Color.green);
-            //    Vector3 forward = rot * new Vector3(0.0f, 0.0f, 0.25f);
-            //    Vector3 right = rot * new Vector3(0.25f, 0.0f, 0.0f);
-            //    DrawTools.DrawLine(pos + forward, pos - forward, Color.blue);
-            //    DrawTools.DrawLine(pos + right, pos - right, Color.red);
-            //}
         }
 
         [KSPField(guiActive = true, guiActiveEditor = true)] 
@@ -1689,8 +1783,6 @@ namespace EasyRobotics
 
         private void FixedUpdate()
         {
-            
-
             if (trackingEnabled)
             {
                 int jointCount = ikChain.Count;
@@ -1698,7 +1790,7 @@ namespace EasyRobotics
                 bool targetAngleReached = true;
                 for (int i = 0; i < jointCount; i++)
                 {
-                    if (!ikChain[i].TargetAngleReached())
+                    if (!ikChain[i].ServoTargetReached())
                     {
                         targetAngleReached = false;
                         break;
@@ -1709,13 +1801,24 @@ namespace EasyRobotics
                 {
                     SyncAllTransforms();
 
-                    float error = Vector3.Magnitude(effector.Position - target.Position);
-                    if (error > 0.01f)
+                    float posError = Vector3.Magnitude(effector.Position - target.Position);
+                    float rotError = 0f;
+                    switch (Constraint)
+                    {
+                        case TrackingConstraint.PositionAndDirection:
+                            rotError = Vector3.Angle(effector.Up, -target.Up);
+                            break;
+                        case TrackingConstraint.PositionAndRotation:
+                            rotError = Quaternion.Angle(effector.Rotation, target.Rotation.Inverse());
+                            break;
+                    }
+                    
+                    if (posError > 0.01f || rotError > 2.5f)
                     {
                         for (int i = (int)iterations; i-- > 0;)
                         {
                             for (int j = 0; j < jointCount; j++)
-                                ikChain[j].Evaluate(effector, target);
+                                ikChain[j].ExecuteIK(effector, target, Constraint);
 
                             float newError = Vector3.Magnitude(effector.Position - target.Position);
                             if (newError < 0.01f)
@@ -1723,20 +1826,13 @@ namespace EasyRobotics
                         }
 
                         for (int i = 0; i < jointCount; i++)
-                            ikChain[i].SendRequestedAngleToServo();
+                            ikChain[i].SendRequestToServo();
                     }
                 }
                 else
                 {
                     if (jointCount > 0)
-                    {
                         ikChain[jointCount - 1].SyncWithServoTransform(true);
-
-                        //if (HighLogic.LoadedSceneIsEditor)
-                        //    ikChain[jointCount - 1].SyncWithPartTransform(true);
-                        //else
-                        //    ikChain[jointCount - 1].SyncWithPartOrg(true);
-                    }
 
                     if (target != null)
                         OnTargetPositionChanged();
@@ -1748,64 +1844,59 @@ namespace EasyRobotics
             }
         }
 
-        private void EnableEffectorGizmo(bool enabled)
+        private void ShowEffectorGizmo(bool show)
         {
-            if (enabled)
+            if (show)
             {
+                if (effector == null)
+                    return;
+
                 if (effectorGizmo.IsNullOrDestroyed())
                 {
-                    GameObject prefab = GameDatabase.Instance.GetModel("EasyRobotics/Models/TargetGizmo");
-                    GameObject instance = Instantiate(prefab);
-                    effectorGizmo = instance.transform;
-                    effectorGizmo.localScale = new Vector3(0.4f, 0.4f, 0.4f);
-                    instance.GetChild("Y").GetComponent<MeshRenderer>().material.SetColor("_BurnColor", Color.green);
+                    effectorGizmo = Instantiate(Assets.TargetGizmoPrefab);
+                    effectorGizmo.transform.localScale = new Vector3(0.4f, 0.4f, 0.4f);
+                    effectorGizmo.GetChild("Y").GetComponent<MeshRenderer>().material.SetColor(Assets.BurnColorID, Color.green);
                 }
 
-                effectorGizmo.gameObject.SetActive(true);
+                effectorGizmo.SetActive(true);
             }
             else if (effectorGizmo.IsNotNullOrDestroyed())
             {
-                effectorGizmo.gameObject.SetActive(false);
+                effectorGizmo.SetActive(false);
             }
         }
 
-        private void EnableTargetGizmo(bool enabled)
+        private void ShowTargetGizmo(bool show)
         {
-            if (enabled)
+            if (show)
             {
+                if (target == null)
+                    return;
+
                 if (targetGizmo.IsNullOrDestroyed())
                 {
-                    GameObject prefab = GameDatabase.Instance.GetModel("EasyRobotics/Models/TargetGizmo");
-                    GameObject instance = Instantiate(prefab);
-                    targetGizmo = instance.transform;
-                    targetGizmo.localScale = new Vector3(0.4f, 0.4f, 0.4f);
-                    instance.GetChild("Y").GetComponent<MeshRenderer>().material.SetColor("_BurnColor", Color.red);
+                    targetGizmo = Instantiate(Assets.TargetGizmoPrefab);
+                    targetGizmo.transform.localScale = new Vector3(0.4f, 0.4f, 0.4f);
+                    targetGizmo.GetChild("Y").GetComponent<MeshRenderer>().material.SetColor(Assets.BurnColorID, Color.red);
                 }
 
-                targetGizmo.gameObject.SetActive(true);
+                targetGizmo.SetActive(true);
             }
             else if (targetGizmo.IsNotNullOrDestroyed())
             {
-                targetGizmo.gameObject.SetActive(false);
+                targetGizmo.SetActive(false);
             }
         }
 
-    }
-
-    public class EffectorOverlay
-    {
-        private BasicTransform transform;
-        private VectorLine vectorLine;
-        private bool overlayEnabled;
-
-        public EffectorOverlay(BasicTransform transform)
+        private void ShowChainGizmos(bool show)
         {
-            this.transform = transform;
-
-
-
+            for (int i = ikChain.Count; i-- > 0;)
+            {
+                ServoJoint joint = ikChain[i];
+                joint.ShowGizmo(show);
+                if (show)
+                    joint.SetGizmoColor(joint == uiSelectedServo ? Color.red : Color.yellow);
+            }
         }
-
-
     }
 }

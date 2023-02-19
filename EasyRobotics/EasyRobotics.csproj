@@ -71,6 +71,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Lib\DrawTools.cs" />
+    <Compile Include="Loader.cs" />
     <Compile Include="ServoJoint.cs" />
     <Compile Include="BasicTransform.cs" />
     <Compile Include="ModuleEasyRobotics.cs" />
