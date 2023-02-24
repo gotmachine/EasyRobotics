@@ -154,6 +154,8 @@ namespace EasyRobotics
         /// </summary>
         public BasicTransform Parent => _parent;
 
+        public BasicTransform Root => _chain == null ? this : _chain[0];
+
         /// <summary>
         /// Set parent, reseting local position/rotation to zero
         /// </summary>

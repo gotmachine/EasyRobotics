@@ -3,6 +3,8 @@ using System.Collections;
 using System.Reflection.Emit;
 using System.Reflection;
 using UnityEngine;
+using System.Collections.Generic;
+using static ProceduralSpaceObject;
 
 namespace EasyRobotics
 {
@@ -56,6 +58,45 @@ namespace EasyRobotics
         {
             baseEvent.guiActive = enabled;
             baseEvent.guiActiveEditor = enabled;
+        }
+
+        public static float FromToRange(this float value, float fromMin, float fromMax, float toMin, float toMax)
+        {
+            return (value - fromMin) * (toMax - toMin) / (fromMax - fromMin) + toMin;
+        }
+
+        public static double FromToRange(this double value, double fromMin, double fromMax, double toMin, double toMax)
+        {
+            return (value - fromMin) * (toMax - toMin) / (fromMax - fromMin) + toMin;
+        }
+
+        /// <summary>
+        /// For a given set of options, return all possible combinations of these options for the given count
+        /// </summary>
+        public static IEnumerable<T[]> Combinations<T>(T[] options, int count)
+        {
+            int[] index = new int[count];
+            T[] current = new T[count];
+
+            while (true)
+            {
+                for (int i = 0; i < count; i++)
+                    current[i] = options[index[i]];
+
+                yield return current;
+
+                for (int i = count - 1; ; i--)
+                {
+                    if (i < 0)
+                        yield break;
+
+                    index[i]++;
+                    if (index[i] == options.Length)
+                        index[i] = 0;
+                    else
+                        break;
+                }
+            }
         }
     }
 }

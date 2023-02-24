@@ -45,8 +45,11 @@ For selection mode, to ensure ESC key doesn't bring pause menu, lock ControlType
 
 
 using Expansions.Serenity;
+using Smooth.Algebraics;
+using Smooth.Compare;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO.Ports;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -55,6 +58,7 @@ using Vectrosity;
 using static EasyRobotics.ModuleEasyRobotics;
 using static EasyRobotics.ServoJoint;
 using static EdyCommonTools.Spline;
+using Debug = UnityEngine.Debug;
 
 namespace EasyRobotics
 {
@@ -82,6 +86,9 @@ namespace EasyRobotics
 
         private bool started;
 
+        /// <summary>
+        /// kinematic chain, from tip to root
+        /// </summary>
         private List<ServoJoint> ikChain = new List<ServoJoint>();
         private bool configurationIsValid = false;
         private ServoJoint uiSelectedServo;
@@ -291,11 +298,6 @@ namespace EasyRobotics
                 if (!usesRotationConstraints && value != TrackingConstraint.Position)
                     value = TrackingConstraint.Position;
             }
-        }
-
-        public void TrackingConstraintCheckValid()
-        {
-
         }
 
         public override void OnAwake()
@@ -532,11 +534,16 @@ namespace EasyRobotics
             if (effectorGizmo.IsNotNullOrDestroyed())
                 Destroy(effectorGizmo);
 
+            for (int i = ikChain.Count; i-- > 0;)
+                ikChain[i].OnDestroy();
+
             GameEvents.onPartPersistentIdChanged.Remove(PartPersistentIdChanged);
             GameEvents.onPartWillDie.Remove(OnPartWillDie);
             GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnVesselDecoupleOrUndock);
             GameEvents.onVesselsUndocking.Remove(OnVesselDecoupleOrUndock);
             GameEvents.onEditorPartEvent.Remove(OnEditorPartEvent);
+            GameEvents.onPartActionUIShown.Remove(OnPAWShown);
+            GameEvents.onPartActionUIDismiss.Remove(OnPAWDismiss);
         }
 
         private const string EFFECTORPARTID = "effPartId";
@@ -1003,6 +1010,8 @@ namespace EasyRobotics
                     effector.SetParent(null);
                     effector = null;
                 }
+
+                virtualEffectorDockingNode = null;
             }
             else
             {
@@ -1065,6 +1074,7 @@ namespace EasyRobotics
                 pawTargetOffset_Field.SetGUIActive(false);
                 target = null;
                 targetObject = null;
+                virtualTargetDockingNode = null;
 
                 ShowTargetGizmo(false);
 
@@ -1158,21 +1168,14 @@ namespace EasyRobotics
             if (effector == null)
                 return;
 
-            Vector3 effectorPos;
-            Quaternion effectorRot;
+            GetEffectorPartPosAndRot(out Vector3 effectorPos, out Quaternion effectorRot);
+            effector.SetPosAndRot(effectorPos, effectorRot);
+        }
 
-            if (HighLogic.LoadedScene == GameScenes.EDITOR)
-            {
-                effectorPos = effectorPart.transform.position;
-                effectorRot = effectorPart.transform.rotation;
-            }
-            else
-            {
-                Transform rootTransform = effectorPart.vessel.rootPart.transform;
-                Quaternion rootRot = rootTransform.rotation;
-                effectorPos = rootRot * effectorPart.orgPos + rootTransform.position;
-                effectorRot = rootRot * effectorPart.orgRot;
-            }
+        private void GetEffectorPartPosAndRot(out Vector3 pos, out Quaternion rot)
+        {
+            pos = effectorPart.transform.position;
+            rot = effectorPart.transform.rotation;
 
             if (pawEffectorNode > 0)
             {
@@ -1183,16 +1186,14 @@ namespace EasyRobotics
                 else
                     node = effectorPart.attachNodes[i];
 
-                effectorPos += effectorRot * node.position;
-                effectorRot *= Quaternion.FromToRotation(Vector3.up, node.orientation);
+                pos += rot * node.position;
+                rot *= Quaternion.FromToRotation(Vector3.up, node.orientation);
             }
 
-            effectorRot = RotateByDirIndex(effectorRot, pawEffectorDir);
+            rot = RotateByDirIndex(rot, pawEffectorDir);
 
             if (pawEffectorOffset > 0f)
-                effectorPos += effectorRot * (Vector3.up * pawEffectorOffset);
-
-            effector.SetPosAndRot(effectorPos, effectorRot);
+                pos += rot * (Vector3.up * pawEffectorOffset);
         }
 
         private void OnTargetPositionChanged()
@@ -1778,8 +1779,185 @@ namespace EasyRobotics
         }
 
         [KSPField(guiActive = true, guiActiveEditor = true)] 
-        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 20f, maxValue = 1000f, stepIncrement = 10f)]
-        public float iterations = 60f;
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 1f, maxValue = 1000f, stepIncrement = 1f)]
+        public float iterations = 2f;
+
+        private static readonly ServoJoint.Pose[] Poses =
+        {
+            ServoJoint.Pose.Negative,
+            ServoJoint.Pose.Positive
+        };
+
+        private static readonly int PosesCount = Poses.Length;
+
+        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "allow reposition")]
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        public bool allowReposition = false;
+
+        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "gradient descent")]
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        public bool gradientDescent = true;
+
+        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "learningRate")]
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 1f, maxValue = 500f, stepIncrement = 1f)]
+        public float learningRate = 100f;
+
+        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "samplingDistance")]
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0.01f, maxValue = 10f, stepIncrement = 0.01f)]
+        public float samplingDistance = 0.1f;
+
+        [KSPEvent(guiActive = true, guiActiveEditor = true)]
+        private void ResetToZero()
+        {
+            for (int i = ikChain.Count; i-- > 0;)
+            {
+                ikChain[i].SetIKPose(ServoJoint.Pose.Zero);
+                ikChain[i].SendRequestToServo();
+            }
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = true)]
+        private void ExecuteAndLog()
+        {
+            SyncAllTransforms();
+
+            Stopwatch watch = Stopwatch.StartNew();
+            int jointCount = ikChain.Count;
+
+            if (ExecuteGradientDescent(out int iteration, out float posError, out float angleError))
+            {
+                Debug.Log($"Target reached from current pose, iterations:{iteration} in {watch.Elapsed.TotalSeconds:F3}s for {jointCount} servos, posErr={posError:F2}, angleErr={angleError:F1}");
+            }
+            else
+            {
+                Debug.Log($"Target not reached from current pose, iterations:{iteration} in {watch.Elapsed.TotalSeconds:F3}s for {jointCount} servos, posErr={posError:F2}, angleErr={angleError:F1}");
+
+                if (allowReposition)
+                {
+                    int[] index = new int[jointCount];
+                    float[] bestAngles = new float[jointCount];
+                    float bestPosError = float.MaxValue;
+                    float bestAngleError = float.MaxValue;
+                    int poseCount = 0;
+                    int totalIterations = 0;
+                    bool solutionFound;
+                    while (true)
+                    {
+                        poseCount++;
+
+                        for (int i = jointCount; i-- > 0;)
+                            ikChain[i].SetIKPose(Poses[index[i]]);
+
+                        solutionFound = ExecuteGradientDescent(out iteration, out posError, out angleError);
+                        totalIterations += iteration;
+                        if (posError < bestPosError && angleError < bestAngleError)
+                        {
+                            bestPosError = posError;
+                            bestAngleError = angleError;
+                            for (int j = jointCount; j-- > 0;)
+                            {
+                                float angle = ((IRotatingServoJoint)ikChain[j]).RequestedAngle;
+                                bestAngles[j] = angle;
+                            }
+                        }
+
+                        if (solutionFound)
+                        {
+                            bestPosError = posError;
+                            bestAngleError = angleError;
+                            goto EndLoop;
+                        }
+
+                        for (int i = jointCount - 1; ; i--)
+                        {
+                            if (i < 0)
+                                goto EndLoop;
+
+                            index[i]++;
+                            if (index[i] == PosesCount)
+                                index[i] = 0;
+                            else
+                                break;
+                        }
+                    }
+
+                    EndLoop:
+
+                    if (!solutionFound)
+                    {
+                        for (int i = jointCount; i-- > 0;)
+                        {
+                            IRotatingServoJoint joint = ((IRotatingServoJoint)ikChain[i]);
+                            ikChain[i].movingTransform.LocalRotation = Quaternion.AngleAxis(bestAngles[i], joint.Axis);
+                            joint.RequestedAngle = bestAngles[i];
+                        }
+                    }
+
+                    Debug.Log($"TargetReached={solutionFound}, iterations={totalIterations}, pose:{poseCount} in {watch.Elapsed.TotalSeconds:F3}s for {jointCount} servos, posErr={bestPosError:F2}, angleErr={bestAngleError:F1}");
+                }
+            }
+
+            for (int i = 0; i < ikChain.Count; i++)
+                ikChain[i].SendRequestToServo();
+        }
+
+        private bool ExecuteGradientDescent(out int iteration, out float posError, out float angleError)
+        {
+            float maxPosErrorSqr = 0.01f * 0.01f;
+            float maxAngleErrorNrm = 1f - Mathf.Cos(2.5f * Mathf.Deg2Rad * 0.5f);
+            float posErrorSqr = float.MaxValue;
+            float angleErrorNrm = float.MaxValue;
+
+            int maxIterations = 2500;
+            iteration = 0;
+            int chainCount = ikChain.Count;
+            int stalledIterations = 0;
+
+            bool solved = false;
+
+            while (iteration < maxIterations)
+            {
+                for (int j = 0; j < chainCount; j++)
+                    ikChain[j].ExecuteGradientDescent(effector, target, Constraint, learningRate, samplingDistance);
+
+                float newPosErrorSqr = Vector3.SqrMagnitude(effector.Position - target.Position);
+                float newAngleErrorNrm = GetTargetAngleErrorNormalized();
+
+                if (newPosErrorSqr <= maxPosErrorSqr && newAngleErrorNrm <= maxAngleErrorNrm)
+                {
+                    solved = true;
+                    break;
+                }
+
+                if (newPosErrorSqr > posErrorSqr - 1e-6f && newAngleErrorNrm > angleErrorNrm - 1e-6f)
+                {
+                    stalledIterations++;
+                }
+                else
+                {
+                    posErrorSqr = newPosErrorSqr;
+                    angleErrorNrm = newAngleErrorNrm;
+                    stalledIterations = 0;
+                }
+
+                if (stalledIterations > 25)
+                    break;
+
+                iteration++;
+            }
+
+            posError = Mathf.Sqrt(posErrorSqr);
+            angleError = Mathf.Acos(1f - angleErrorNrm) * Mathf.Rad2Deg * 2f;
+
+            return solved;
+        }
+
+        private void CheckEffectorStability()
+        {
+            // get distance/rotation between kinematics root and effector (for real, not using ik representation)
+            // then compare with same results from previous frames to determine if effector oscillating or not.
+            // this is needed 
+        }
 
         private void FixedUpdate()
         {
@@ -1787,47 +1965,28 @@ namespace EasyRobotics
             {
                 int jointCount = ikChain.Count;
 
-                bool targetAngleReached = true;
+                bool servosTargetReached = true;
                 for (int i = 0; i < jointCount; i++)
                 {
                     if (!ikChain[i].ServoTargetReached())
                     {
-                        targetAngleReached = false;
+                        servosTargetReached = false;
                         break;
                     }
                 }
 
-                if (targetAngleReached)
+                float maxPosError = 0.025f;
+                float maxPosErrorSquared = maxPosError * maxPosError;
+                float maxAngleError = 1.5f;
+
+                bool targetReached = IsTargetPosReached(maxPosError) && IsTargetRotReached(maxAngleError);
+
+                GetEffectorPartPosAndRot(out Vector3 pos, out _);
+                float dist = Vector3.Distance(effector.Position, pos);
+
+                if (servosTargetReached || dist > 1f)
                 {
                     SyncAllTransforms();
-
-                    float posError = Vector3.Magnitude(effector.Position - target.Position);
-                    float rotError = 0f;
-                    switch (Constraint)
-                    {
-                        case TrackingConstraint.PositionAndDirection:
-                            rotError = Vector3.Angle(effector.Up, -target.Up);
-                            break;
-                        case TrackingConstraint.PositionAndRotation:
-                            rotError = Quaternion.Angle(effector.Rotation, target.Rotation.Inverse());
-                            break;
-                    }
-                    
-                    if (posError > 0.01f || rotError > 2.5f)
-                    {
-                        for (int i = (int)iterations; i-- > 0;)
-                        {
-                            for (int j = 0; j < jointCount; j++)
-                                ikChain[j].ExecuteIK(effector, target, Constraint);
-
-                            float newError = Vector3.Magnitude(effector.Position - target.Position);
-                            if (newError < 0.01f)
-                                break;
-                        }
-
-                        for (int i = 0; i < jointCount; i++)
-                            ikChain[i].SendRequestToServo();
-                    }
                 }
                 else
                 {
@@ -1837,11 +1996,262 @@ namespace EasyRobotics
                     if (target != null)
                         OnTargetPositionChanged();
                 }
+
+                if (!targetReached)
+                {
+                    int maxIterations = (int)iterations;
+
+                    if (gradientDescent)
+                    {
+                        for (int i = maxIterations; i-- > 0;)
+                        {
+                            for (int j = 0; j < ikChain.Count; j++)
+                            {
+                                // Gradient descent
+                                // Update : Solution -= LearningRate * Gradient
+                                ikChain[j].ExecuteGradientDescent(effector, target, Constraint, learningRate, samplingDistance);
+                            }
+                        }
+
+                        for (int i = 0; i < jointCount; i++)
+                            ikChain[i].SendRequestToServo();
+                    }
+                    else
+                    {
+                        // first try to reach target from the current pose
+                        if (ExecuteIK(jointCount, maxIterations, maxPosError, maxAngleError) || !allowReposition)
+                        {
+
+                            string[] angles = new string[jointCount];
+                            for (int j = jointCount; j-- > 0;)
+                            {
+                                float angle = ((IRotatingServoJoint)ikChain[j]).RequestedAngle;
+                                angles[j] = angle.ToString("000.0");
+                            }
+
+                            Debug.Log($"Last pose used. Angles:{string.Join(",", angles)}");
+
+                            for (int i = 0; i < jointCount; i++)
+                                ikChain[i].SendRequestToServo();
+                        }
+                        // if that doesn't work, try again using all possible pose combinations
+                        // not sure this is very viable. For 9 servos, checking 3 poses gives 3^9 = 19683 combinations
+                        // and this takes ~30 seconds...
+                        else
+                        {
+                            int[] index = new int[jointCount];
+                            float[] bestAngles = new float[jointCount];
+                            float bestPosError = float.MaxValue;
+                            float bestAngleError = float.MaxValue;
+                            bool isBelowMaxError;
+                            int poseCount = 0;
+                            while (true)
+                            {
+                                poseCount++;
+
+                                for (int i = jointCount; i-- > 0;)
+                                    ikChain[i].SetIKPose(Poses[index[i]]);
+
+                                for (int i = maxIterations; i-- > 0;)
+                                {
+                                    for (int j = 0; j < jointCount; j++)
+                                        ikChain[j].ExecuteCyclicCoordinateDescent(effector, target, Constraint);
+
+                                    float posError = Vector3.SqrMagnitude(effector.Position - target.Position);
+                                    float angleError = GetTargetAngleError();
+
+                                    if (posError < maxPosErrorSquared && angleError <= maxAngleError)
+                                    {
+                                        isBelowMaxError = true;
+
+                                        string[] angles = new string[jointCount];
+                                        for (int j = jointCount; j-- > 0;)
+                                        {
+                                            float angle = ((IRotatingServoJoint)ikChain[j]).RequestedAngle;
+                                            angles[j] = angle.ToString("000.0");
+                                        }
+
+                                        Debug.Log($"Found pose={poseCount} Err:{posError:00.00}m/{angleError:000.0}° - Angles:{string.Join(",", angles)} - Poses:{string.Join(", ", index)}");
+                                        goto EndLoop;
+                                    }
+                                    if (i == 0 && posError < bestPosError && angleError < bestAngleError)
+                                    {
+                                        bestPosError = posError;
+                                        bestAngleError = angleError;
+                                        string[] angles = new string[jointCount];
+                                        for (int j = jointCount; j-- > 0;)
+                                        {
+                                            float angle = ((IRotatingServoJoint)ikChain[j]).RequestedAngle;
+                                            bestAngles[j] = angle;
+                                            angles[j] = angle.ToString("000.0");
+                                        }
+
+
+                                        Debug.Log($"New best pose={poseCount} Err:{posError:00.00}m/{angleError:000.0}° - Angles:{string.Join(",", angles)} - Poses:{string.Join(", ", index)}");
+                                    }
+                                }
+
+                                for (int i = jointCount - 1; ; i--)
+                                {
+                                    if (i < 0)
+                                    {
+                                        isBelowMaxError = false;
+                                        goto EndLoop;
+                                    }
+
+                                    index[i]++;
+                                    if (index[i] == PosesCount)
+                                        index[i] = 0;
+                                    else
+                                        break;
+                                }
+                            }
+
+                            EndLoop:
+
+                            if (!isBelowMaxError)
+                            {
+                                for (int i = jointCount; i-- > 0;)
+                                {
+                                    IRotatingServoJoint joint = ((IRotatingServoJoint)ikChain[i]);
+                                    ikChain[i].movingTransform.LocalRotation = Quaternion.AngleAxis(bestAngles[i], joint.Axis);
+                                    joint.RequestedAngle = bestAngles[i];
+                                }
+                            }
+
+                            for (int i = 0; i < jointCount; i++)
+                                ikChain[i].SendRequestToServo();
+                        }
+                    }
+                }
+                //else
+                //{
+                //    if (jointCount > 0)
+                //        ikChain[jointCount - 1].SyncWithServoTransform(true);
+
+                //    if (target != null)
+                //        OnTargetPositionChanged();
+                //}
             }
             else
             {
                 SyncAllTransforms();
             }
+        }
+
+
+
+
+        private bool ExecuteIK(int jointCount, int maxIteration, float maxDistError, float maxAngleError)
+        {
+            maxDistError *= maxDistError;
+            float bestDist = float.MaxValue;
+            float bestAngle = float.MaxValue;
+
+            float[] bestAngles = new float[jointCount];
+
+            for (int i = maxIteration; i-- > 0;)
+            {
+                for (int j = 0; j < jointCount; j++)
+                    ikChain[j].ExecuteCyclicCoordinateDescent(effector, target, Constraint);
+
+                float distError = Vector3.SqrMagnitude(effector.Position - target.Position);
+                float angleError = GetTargetAngleError();
+
+                if (distError <= maxDistError && angleError <= maxAngleError)
+                    return true;
+
+                //if ((distError < bestDist && angleError < bestAngle)
+                //    || (distError <= maxDistError && angleError < bestAngle)
+                //    || (distError < bestDist && angleError <= maxAngleError))
+                //{
+                //    if (distError < bestDist)
+                //        bestDist = distError;
+
+                //    if (angleError < bestAngle)
+                //        bestAngle = angleError;
+
+                //    for (int j = jointCount; j-- > 0;)
+                //        bestAngles[j] = ((IRotatingServoJoint)ikChain[j]).RequestedAngle;
+                //}
+            }
+
+            //for (int i = jointCount; i-- > 0;)
+            //{
+            //    IRotatingServoJoint joint = ((IRotatingServoJoint)ikChain[i]);
+            //    ikChain[i].movingTransform.LocalRotation = Quaternion.AngleAxis(bestAngles[i], joint.Axis);
+            //    joint.RequestedAngle = bestAngles[i];
+            //}
+
+            return false;
+        }
+
+        private bool ExecuteIK(int jointCount, int maxIteration, float maxPosError, float maxAngleError, out float sqrPosError, out float angleError)
+        {
+            sqrPosError = angleError = float.MaxValue;
+            maxPosError *= maxPosError;
+
+            for (int i = maxIteration; i-- > 0;)
+            {
+                for (int j = 0; j < jointCount; j++)
+                    ikChain[j].ExecuteCyclicCoordinateDescent(effector, target, Constraint);
+
+                sqrPosError = Vector3.SqrMagnitude(effector.Position - target.Position);
+                if (sqrPosError > maxPosError)
+                    continue;
+
+                switch (Constraint)
+                {
+                    case TrackingConstraint.PositionAndDirection:
+                        angleError = Vector3.Angle(effector.Up, -target.Up);
+                        break;
+                    case TrackingConstraint.PositionAndRotation:
+                        angleError = Quaternion.Angle(effector.Rotation, target.Rotation * upToDown);
+                        break;
+                }
+
+                if (angleError <= maxAngleError)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsTargetPosReached(float posThreshold)
+        {
+            float sqrPosError = Vector3.SqrMagnitude(effector.Position - target.Position);
+            return sqrPosError <= posThreshold * posThreshold;
+        }
+
+        private float GetTargetAngleErrorNormalized()
+        {
+            switch (Constraint)
+            {
+                case TrackingConstraint.PositionAndDirection:
+                    return (Vector3.Dot(effector.Up, -target.Up) - 1f) * -0.5f;
+                case TrackingConstraint.PositionAndRotation:
+                    return 1f - Math.Abs(Quaternion.Dot(effector.Rotation, target.Rotation * upToDown));
+                default:
+                    return 0f;
+            }
+        }
+
+        private float GetTargetAngleError()
+        {
+            switch (Constraint)
+            {
+                case TrackingConstraint.PositionAndDirection:
+                    return Vector3.Angle(effector.Up, -target.Up);
+                case TrackingConstraint.PositionAndRotation:
+                    return Quaternion.Angle(effector.Rotation, target.Rotation * upToDown);
+                default:
+                    return -1f;
+            }
+        }
+
+        private bool IsTargetRotReached(float angleThreshold)
+        {
+            return GetTargetAngleError() <= angleThreshold;
         }
 
         private void ShowEffectorGizmo(bool show)

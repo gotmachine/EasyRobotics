@@ -4,11 +4,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Expansions.Serenity;
+using Smooth.Compare;
 using Steamworks;
 using UnityEngine;
 using Vectrosity;
 using VehiclePhysics;
 using static EasyRobotics.ModuleEasyRobotics;
+using static EdyCommonTools.Spline;
 using static KSP.UI.Screens.RDNode;
 using static SoftMasking.SoftMask;
 
@@ -43,7 +45,9 @@ namespace EasyRobotics
 
         public abstract void OnModified(List<ServoJoint> ikChain);
 
-        public abstract void ExecuteIK(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint);
+        public abstract void ExecuteCyclicCoordinateDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint);
+
+        public abstract void ExecuteGradientDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint, float learningRate, float samplingDistance);
 
         public abstract void SendRequestToServo();
 
@@ -76,6 +80,7 @@ namespace EasyRobotics
         Vector3 Axis { get; }
         Vector3 PerpendicularAxis { get; }
         float ServoTargetAngle { get; }
+        float RequestedAngle { get; set; }
         ServoJoint.IkMode IkMode { get; set; }
         void CycleIkMode();
     }
@@ -91,11 +96,13 @@ namespace EasyRobotics
         public Vector3 Axis { get; protected set; }
         public Vector3 PerpendicularAxis { get; protected set; }
         public IkMode IkMode { get; set; } = IkMode.Position;
-        protected float requestedAngle;
+        public float RequestedAngle { get; set; }
 
         public void CycleIkMode() => IkMode = IkMode == IkMode.Position ? IkMode.Rotation : IkMode.Position;
 
         protected abstract bool AngleIsInverted { get; }
+
+        protected abstract bool HasAngleLimits { get; }
 
         private GameObject gizmo;
         private Material gizmoMaterial;
@@ -119,32 +126,119 @@ namespace EasyRobotics
                 PerpendicularAxis = new Vector3(0f, -Axis.z, Axis.y);
         }
 
-        public override void ExecuteIK(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+        public override void ExecuteGradientDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint, float learningRate, float samplingDistance)
         {
-            // CCDIK step 1 : rotate ignoring axis/limits
-            if (IkMode == IkMode.Rotation && trackingConstraint != TrackingConstraint.Position)
+            Vector3 baseDir = PerpendicularAxis;
+            Vector3 newDir = movingTransform.LocalRotation * PerpendicularAxis;
+
+            double currentAngle = Vector3.SignedAngle(baseDir, newDir, Axis);
+            double currentDistError = NormalizedDistance(effector, target);
+            double currentAngleError = NormalizedAngle(effector, target, trackingConstraint);
+            double currentError = (currentDistError + currentAngleError) * 0.5;
+            currentError = UtilMath.Clamp01(currentError);
+
+            double autoSamplingDistance = currentError.FromToRange(0.0, 1.0, 0.05, 1.0);
+
+            double sampledAngle = currentAngle + autoSamplingDistance;
+            movingTransform.LocalRotation = Quaternion.AngleAxis((float)sampledAngle, Axis);
+
+            double newDistError = NormalizedDistance(effector, target);
+            double newAngleError = NormalizedAngle(effector, target, trackingConstraint);
+            double newError = (newDistError + newAngleError) * 0.5;
+
+            double gradient = (newError - currentError) / autoSamplingDistance;
+            double newAngle = currentAngle - (learningRate * gradient);
+            float finalAngle = (float)newAngle;
+
+            if (HasAngleLimits)
             {
-                if (trackingConstraint == TrackingConstraint.PositionAndRotation)
-                {
-                    // ???
-                    movingTransform.Rotation = (effector.Rotation.Inverse() * target.Rotation.Inverse()) * movingTransform.Rotation;
-                }
-                else if (trackingConstraint == TrackingConstraint.PositionAndDirection)
-                {
-                    // Point the effector along the target direction
-                    // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
-                    // while other servos are matching target direction
-                    movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
-                }
+                Vector2 minMax = ServoMinMaxAngle;
+                finalAngle = Mathf.Clamp(finalAngle, minMax.x, minMax.y);
             }
             else
             {
-                // Point the effector towards the target
-                Vector3 directionToEffector = effector.Position - baseTransform.Position;
-                Vector3 directionToTarget = target.Position - baseTransform.Position;
-                Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
-                movingTransform.Rotation = rotationOffset * movingTransform.Rotation;
+                if (finalAngle > 180f)
+                    finalAngle -= 360f;
+                else if (finalAngle < -179.99f)
+                    finalAngle += 360f;
             }
+
+            RequestedAngle = finalAngle;
+            movingTransform.LocalRotation = Quaternion.AngleAxis(finalAngle, Axis);
+        }
+
+        private double NormalizedDistance(BasicTransform effector, BasicTransform target)
+        {
+            double error = Vector3.SqrMagnitude(effector.Position - target.Position);
+            return UtilMath.Clamp01(-1.0 / (error + 1.0) + 1.0);
+        }
+
+        private static Quaternion upToDown = Quaternion.FromToRotation(Vector3.up, Vector3.down);
+        private double NormalizedAngle(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+        {
+            double factor;
+            switch (trackingConstraint)
+            {
+                case TrackingConstraint.PositionAndDirection:
+                    factor = (Vector3.Dot(effector.Up, -target.Up) - 1.0) * -0.5;
+                    break;
+                case TrackingConstraint.PositionAndRotation:
+                    factor = 1.0 - Math.Abs(Quaternion.Dot(effector.Rotation, target.Rotation * upToDown));
+                    break;
+                default:
+                    return 0.0;
+            }
+
+            // https://www.desmos.com/calculator/zkdmdlejpc
+
+            return Math.Pow(UtilMath.Clamp01(factor), 0.5);
+        }
+
+        public override void ExecuteCyclicCoordinateDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+        {
+            //// CCDIK step 1 : rotate ignoring axis/limits
+            //if (IkMode == IkMode.Rotation && trackingConstraint != TrackingConstraint.Position)
+            //{
+            //    if (trackingConstraint == TrackingConstraint.PositionAndRotation)
+            //    {
+            //        // nope, need to inverse something...
+            //        movingTransform.Rotation = (target.Rotation.Inverse() * effector.Rotation) * movingTransform.Rotation;
+            //    }
+            //    else if (trackingConstraint == TrackingConstraint.PositionAndDirection)
+            //    {
+            //        // Point the effector along the target direction
+            //        // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
+            //        // while other servos are matching target direction
+            //        movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
+            //    }
+            //}
+            //else
+            //{
+            //    // Point the effector towards the target
+            //    Vector3 directionToEffector = effector.Position - baseTransform.Position;
+            //    Vector3 directionToTarget = target.Position - baseTransform.Position;
+            //    Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
+            //    movingTransform.Rotation = rotationOffset * movingTransform.Rotation;
+            //}
+
+            if (trackingConstraint == TrackingConstraint.PositionAndRotation)
+            {
+                // nope, need to inverse something...
+                movingTransform.Rotation = (target.Rotation.Inverse() * effector.Rotation) * movingTransform.Rotation;
+            }
+            else if (trackingConstraint == TrackingConstraint.PositionAndDirection)
+            {
+                // Point the effector along the target direction
+                // In case of a 5+ DoF chain, do this with the last servos to match target orientation,
+                // while other servos are matching target direction
+                movingTransform.Rotation = Quaternion.FromToRotation(effector.Up, -target.Up) * movingTransform.Rotation;
+            }
+
+            // Point the effector towards the target
+            Vector3 directionToEffector = effector.Position - baseTransform.Position;
+            Vector3 directionToTarget = target.Position - baseTransform.Position;
+            Quaternion rotationOffset = Quaternion.FromToRotation(directionToEffector, directionToTarget);
+            movingTransform.Rotation = rotationOffset * movingTransform.Rotation;
 
             // CCDIK step 2 : Constrain resulting rotation to axis
             Vector3 from = movingTransform.Rotation * Axis;
@@ -155,23 +249,23 @@ namespace EasyRobotics
             // CCDIK step 3 : Constrain to min/max angle
             Vector3 baseDir = PerpendicularAxis;
             Vector3 newDir = movingTransform.LocalRotation * PerpendicularAxis;
-            requestedAngle = Vector3.SignedAngle(baseDir, newDir, Axis);
+            RequestedAngle = Vector3.SignedAngle(baseDir, newDir, Axis);
 
             Vector2 minMax = ServoMinMaxAngle;
             float servoMinAngle = Math.Max(minMax.x, -179.99f);
             float servoMaxAngle = Math.Min(minMax.y, 179.99f);
 
-            if (requestedAngle < servoMinAngle)
-                requestedAngle = servoMinAngle;
-            else if (requestedAngle > servoMaxAngle)
-                requestedAngle = servoMaxAngle;
+            if (RequestedAngle < servoMinAngle)
+                RequestedAngle = servoMinAngle;
+            else if (RequestedAngle > servoMaxAngle)
+                RequestedAngle = servoMaxAngle;
 
-            movingTransform.LocalRotation = Quaternion.AngleAxis(requestedAngle, Axis);
+            movingTransform.LocalRotation = Quaternion.AngleAxis(RequestedAngle, Axis);
         }
 
         public override void SendRequestToServo()
         {
-            ServoTargetAngle = requestedAngle;
+            ServoTargetAngle = RequestedAngle;
         }
 
         public override void SyncWithServoTransform(bool baseOnly = false)
@@ -193,7 +287,7 @@ namespace EasyRobotics
             float requestAngle = ServoTargetAngle;
             float diff = Math.Abs(currentAngle - requestAngle);
 
-            return diff < 1f || diff > 359f;
+            return (diff < 1f || diff > 359f) && servo.transformRateOfMotion < 0.2f;
         }
 
         public override void SetIKPose(Pose pose)
@@ -202,7 +296,7 @@ namespace EasyRobotics
 
             if (pose == Pose.Zero)
             {
-                requestedAngle = Mathf.Clamp(0f, minMax.x, minMax.y);
+                RequestedAngle = Mathf.Clamp(0f, minMax.x, minMax.y);
             }
             else
             {
@@ -217,7 +311,7 @@ namespace EasyRobotics
                 // set to neutral
                 if (pose == Pose.Neutral)
                 {
-                    requestedAngle = minMax.x + totalAngle * 0.5f;
+                    RequestedAngle = minMax.x + totalAngle * 0.5f;
 
                 }
                 else
@@ -225,13 +319,13 @@ namespace EasyRobotics
                     // clamp to ±120° from neutral
                     float clampOffset = Mathf.Max(0f, (totalAngle - 240f) * 0.5f);
                     if (pose == Pose.Negative)
-                        requestedAngle = minMax.x + clampOffset;
+                        RequestedAngle = minMax.x + clampOffset;
                     else
-                        requestedAngle = minMax.y - clampOffset;
+                        RequestedAngle = minMax.y - clampOffset;
                 }
             }
 
-            movingTransform.LocalRotation = Quaternion.AngleAxis(requestedAngle, Axis);
+            movingTransform.LocalRotation = Quaternion.AngleAxis(RequestedAngle, Axis);
 
         }
 
@@ -298,6 +392,8 @@ namespace EasyRobotics
 
         protected override bool AngleIsInverted => servo.inverted;
 
+        protected override bool HasAngleLimits => !servo.allowFullRotation;
+
         public override Vector2 ServoMinMaxAngle => servo.softMinMaxAngles;
 
         public override float ServoTargetAngle
@@ -319,6 +415,8 @@ namespace EasyRobotics
         }
 
         protected override bool AngleIsInverted => false;
+
+        protected override bool HasAngleLimits => true;
 
         public override Vector2 ServoMinMaxAngle => servo.softMinMaxAngles;
 
