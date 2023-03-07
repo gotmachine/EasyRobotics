@@ -7,6 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyRobotics", "EasyRobotic
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{601DA5E1-A461-4EDF-8CA1-DFA0164446CB}"
 	ProjectSection(SolutionItems) = preProject
+		UserGuide\readme.md = UserGuide\readme.md
 		TECHNICAL.md = TECHNICAL.md
 	EndProjectSection
 EndProject

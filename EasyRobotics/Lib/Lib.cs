@@ -1,15 +1,19 @@
 ﻿using System;
 using System.Collections;
-using System.Reflection.Emit;
-using System.Reflection;
-using UnityEngine;
 using System.Collections.Generic;
-using static ProceduralSpaceObject;
+using System.Reflection;
+using System.Reflection.Emit;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace EasyRobotics
 {
     public static class Lib
     {
+        public static readonly WaitForFixedUpdate WaitForFixedUpdate = new WaitForFixedUpdate();
+
+        public static readonly WaitForEndOfFrame WaitForEndOfFrame = new WaitForEndOfFrame();
+
         public static Func<S, T> CreateGetter<S, T>(FieldInfo field)
         {
             string methodName = field.ReflectedType.FullName + ".get_" + field.Name;
@@ -60,6 +64,56 @@ namespace EasyRobotics
             baseEvent.guiActiveEditor = enabled;
         }
 
+        /// <summary>
+        /// Force a PartActionWindow layout refresh.
+        /// This can be necessary to avoid overlapping items or blank spaces after toggling KSPField/KSPEvent controls visibility
+        /// </summary>
+        /// <param name="part">The part to be refreshed</param>
+        /// <param name="layoutOnly">true to only rebuild the visual layout, false to trigger a full PAW rebuild</param>
+        public static void RefreshPAWLayout(this Part part, bool layoutOnly = true)
+        {
+            if (part.PartActionWindow.IsNullOrDestroyed() || !part.PartActionWindow.isActiveAndEnabled)
+                return;
+
+            if (layoutOnly)
+                part.StartCoroutine(new RebuildPAWLayoutCoroutine(part.PartActionWindow));
+            else
+                part.PartActionWindow.displayDirty = true;
+        }
+
+        private struct RebuildPAWLayoutCoroutine : IEnumerator
+        {
+            private UIPartActionWindow _paw;
+            private bool _mustWait;
+
+            public RebuildPAWLayoutCoroutine(UIPartActionWindow paw)
+            {
+                _paw = paw;
+                _mustWait = true;
+            }
+
+            public bool MoveNext()
+            {
+                if (_mustWait)
+                {
+                    _mustWait = false;
+                    return true;
+                }
+
+                if (!_paw.IsDestroyed() && _paw.isActiveAndEnabled)
+                    LayoutRebuilder.MarkLayoutForRebuild(_paw.itemsContentTransform);
+
+                return false;
+            }
+
+            public void Reset()
+            {
+                throw new NotImplementedException();
+            }
+
+            public object Current => WaitForEndOfFrame;
+        }
+
         public static float FromToRange(this float value, float fromMin, float fromMax, float toMin, float toMax)
         {
             return (value - fromMin) * (toMax - toMin) / (fromMax - fromMin) + toMin;
@@ -70,8 +124,28 @@ namespace EasyRobotics
             return (value - fromMin) * (toMax - toMin) / (fromMax - fromMin) + toMin;
         }
 
+        public static bool IsDistanceLower(Vector3 from, Vector3 to, float lowerThan)
+        {
+            return (from - to).sqrMagnitude < lowerThan * lowerThan;
+        }
+
+        public static bool IsDistanceLowerOrEqual(Vector3 from, Vector3 to, float lowerThan)
+        {
+            return (from - to).sqrMagnitude <= lowerThan * lowerThan;
+        }
+
+        public static bool IsDistanceHigher(Vector3 from, Vector3 to, float lowerThan)
+        {
+            return (from - to).sqrMagnitude > lowerThan * lowerThan;
+        }
+
+        public static bool IsDistanceHigherOrEqual(Vector3 from, Vector3 to, float lowerThan)
+        {
+            return (from - to).sqrMagnitude >= lowerThan * lowerThan;
+        }
+
         /// <summary>
-        /// For a given set of options, return all possible combinations of these options for the given count
+        /// For a given set of options, enumerate all possible combinations of these options for the given count
         /// </summary>
         public static IEnumerable<T[]> Combinations<T>(T[] options, int count)
         {
