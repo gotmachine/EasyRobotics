@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using UnityEngine;
-using static KSP.UI.Screens.RDNode;
 
 namespace EasyRobotics
 {
@@ -12,16 +10,13 @@ namespace EasyRobotics
     /// </summary>
     public class BasicTransform
     {
-        public string name;
-
         private Vector3 _localPosition;
-        private Quaternion _localRotation;
+        private Quaternion _localRotation = Quaternion.identity;
 
         private Vector3 _worldPosition;
-        private Quaternion _worldRotation;
+        private Quaternion _worldRotation = Quaternion.identity;
 
         private bool _worldIsDirty;
-
 
         private BasicTransform _parent;
 
@@ -43,7 +38,7 @@ namespace EasyRobotics
         /// Instantiate a transform with the specified parent (or null to make it a root transform),
         /// with a given local or world position and rotation
         /// </summary>
-        /// <param name="parent">the parent of thsi transform (or null to make it a root transform)</param>
+        /// <param name="parent">the parent of this transform (or null to make it a root transform)</param>
         /// <param name="position">world or local position</param>
         /// <param name="rotation">world or local rotation</param>
         /// <param name="isLocalPosRot">if true, position/rotation are local (relative to parent), if false, position/rotation are in world space</param>
@@ -154,7 +149,11 @@ namespace EasyRobotics
         /// </summary>
         public BasicTransform Parent => _parent;
 
+        public bool HasChain => _chain != null && _chain.Count > 0;
+
         public BasicTransform Root => _chain == null ? this : _chain[0];
+
+        public BasicTransform Tip => _chain == null ? this : _chain[_chain.Count - 1];
 
         /// <summary>
         /// Set parent, reseting local position/rotation to zero

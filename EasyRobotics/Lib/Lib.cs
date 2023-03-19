@@ -144,6 +144,22 @@ namespace EasyRobotics
             return (from - to).sqrMagnitude >= lowerThan * lowerThan;
         }
 
+        public static double SqrDistance(Vector3 v1, Vector3 v2)
+        {
+            double x = v1.x - v2.x;
+            double y = v1.y - v2.y;
+            double z = v1.z - v2.z;
+            return x * x + y * y + z * z;
+        }
+
+        public static double Distance(Vector3 v1, Vector3 v2)
+        {
+            double x = v1.x - v2.x;
+            double y = v1.y - v2.y;
+            double z = v1.z - v2.z;
+            return Math.Sqrt(x * x + y * y + z * z);
+        }
+
         /// <summary>
         /// For a given set of options, enumerate all possible combinations of these options for the given count
         /// </summary>

@@ -8,6 +8,12 @@ namespace EasyRobotics
 {
     public abstract class ServoJoint
     {
+        public static double targetDistWeight = 1.0;
+        public static double targetAngleWeight = 1.0;
+        public static double effectorDistWeight = 0.2;
+        public static double rootDistWeight = 0.2;
+        public static double totalWeight = targetDistWeight + targetAngleWeight + effectorDistWeight + rootDistWeight;
+
         public enum Pose
         {
             Zero,
@@ -92,16 +98,19 @@ namespace EasyRobotics
                 PerpendicularAxis = new Vector3(0f, -Axis.z, Axis.y);
         }
 
+        // Basic explanation :
+        // - for the current servo angle, get a normalized error value representing how far the effector is from the target
+        // - move the servo angle by some increment
+        // - check the error again
+        // - if the error has decreased, move in the direction of the increment
+        // - else, move in the opposite direction
         public override void ExecuteGradientDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint, float learningRateFactor)
         {
             Vector3 baseDir = PerpendicularAxis;
             Vector3 newDir = movingTransform.LocalRotation * PerpendicularAxis;
 
             double currentAngle = Vector3.SignedAngle(baseDir, newDir, Axis);
-            double currentDistError = NormalizedDistance(effector, target);
-            double currentAngleError = NormalizedAngle(effector, target, trackingConstraint);
-            double currentError = (currentDistError + currentAngleError) * 0.5;
-            currentError = UtilMath.Clamp01(currentError);
+            double currentError = Error(effector, target, trackingConstraint);
 
             double autoSamplingDistance = currentError.FromToRange(0.0, 1.0, 0.05, 1.0);
             double autoLearningRate = currentError.FromToRange(0.0, 1.0, 75.0, 150.0);
@@ -109,9 +118,7 @@ namespace EasyRobotics
             double sampledAngle = currentAngle + autoSamplingDistance;
             movingTransform.LocalRotation = Quaternion.AngleAxis((float)sampledAngle, Axis);
 
-            double newDistError = NormalizedDistance(effector, target);
-            double newAngleError = NormalizedAngle(effector, target, trackingConstraint);
-            double newError = (newDistError + newAngleError) * 0.5;
+            double newError = Error(effector, target, trackingConstraint);
 
             double gradient = (newError - currentError) / autoSamplingDistance;
             double newAngle = currentAngle - (autoLearningRate * learningRateFactor * gradient);
@@ -136,29 +143,59 @@ namespace EasyRobotics
 
         private double NormalizedDistance(BasicTransform effector, BasicTransform target)
         {
-            double error = Vector3.SqrMagnitude(effector.Position - target.Position);
-            return UtilMath.Clamp01(-1.0 / (error + 1.0) + 1.0);
+            double error = Lib.Distance(effector.Position, target.Position);
+            return UtilMath.Clamp01(-1.0 / (0.1 * error + 1.0) + 1.0);
         }
 
         private static Quaternion upToDown = Quaternion.FromToRotation(Vector3.up, Vector3.down);
         private double NormalizedAngle(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
         {
-            double factor;
+            double angle;
             switch (trackingConstraint)
             {
                 case TrackingConstraint.PositionAndDirection:
-                    factor = (Vector3.Dot(effector.Up, -target.Up) - 1.0) * -0.5;
+                    angle = (Vector3.Dot(effector.Up, -target.Up) - 1.0) * -0.5;
                     break;
                 case TrackingConstraint.PositionAndRotation:
-                    factor = 1.0 - Math.Abs(Quaternion.Dot(effector.Rotation, target.Rotation * upToDown));
+                    angle = 1.0 - Math.Abs(Quaternion.Dot(effector.Rotation, target.Rotation * upToDown));
                     break;
                 default:
                     return 0.0;
             }
 
-            // https://www.desmos.com/calculator/zkdmdlejpc
+            return Math.Pow(UtilMath.Clamp01(angle), 0.5);
+        }
 
-            return Math.Pow(UtilMath.Clamp01(factor), 0.5);
+        // As a poor-man collision avoidance mechanism, maximize the distance between each servo
+        // and the effector. This is somewhat effective at ensuring the algorithm select a solution
+        // where the arm is "behind" the effector.
+        private double NormalizedEffectorDistance(BasicTransform effector)
+        {
+            double error = Lib.Distance(effector.Position, baseTransform.Position);
+            return UtilMath.Clamp01(1.0 / (0.1 * error + 1.0));
+        }
+
+        // same, but maximizing each servo distance to the root
+        private double NormalizedRootDistance()
+        {
+            BasicTransform rootTransform = baseTransform.Root;
+            if (rootTransform == baseTransform)
+                return 0.0;
+
+            double error = Lib.Distance(rootTransform.Position, baseTransform.Position);
+            return UtilMath.Clamp01(1.0 / (0.1 * error + 1.0));
+        }
+
+        // see https://www.desmos.com/calculator/zkdmdlejpc for a visualization of the distance / angle error functions
+        private double Error(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
+        {
+            double error =
+                NormalizedDistance(effector, target) * targetDistWeight
+                + NormalizedAngle(effector, target, trackingConstraint) * targetAngleWeight
+                + NormalizedEffectorDistance(effector) * effectorDistWeight
+                + NormalizedRootDistance() * rootDistWeight;
+
+            return UtilMath.Clamp01(error / totalWeight);
         }
 
         public override void SendRequestToServo()
