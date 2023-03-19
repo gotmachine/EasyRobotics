@@ -64,6 +64,31 @@ namespace EasyRobotics
             baseEvent.guiActiveEditor = enabled;
         }
 
+        public static string PartTitle(this Part part) => part.partInfo.title;
+
+        public static string PartTitle(this PartModule module) => module.part.partInfo.title;
+
+        public static void Blink(this Part part, Color color, float duration = 5f, float blinkSpeed = 0.25f)
+        {
+            part.StartCoroutine(BlinkCoroutine(part, color, (int)(duration / blinkSpeed), blinkSpeed));
+        }
+
+        private static IEnumerator BlinkCoroutine(Part part, Color color, int blinkCount, float blinkSpeed)
+        {
+            int current = 0;
+            float time = 0f;
+            while (current < blinkCount)
+            {
+                time += Time.unscaledDeltaTime;
+                float lerp = (time % blinkSpeed) * (1f / blinkSpeed);
+                current = (int)(time / blinkSpeed);
+                Color lerpedColor = Color.Lerp(Color.clear, color, current % 2 == 0 ? lerp : 1f - lerp);
+                part.Highlight(lerpedColor);
+
+                yield return null;
+            }
+        }
+
         /// <summary>
         /// Force a PartActionWindow layout refresh.
         /// This can be necessary to avoid overlapping items or blank spaces after toggling KSPField/KSPEvent controls visibility

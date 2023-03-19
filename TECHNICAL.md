@@ -21,10 +21,9 @@ Characteristics :
 - Amount of iterations required to converge is quite variable, and overall relatively high. 50+ iterations is usual, and 500+ not uncommon.
 - By nature, the algorithm guarantees smooth movements between iterations, no matter how far the target is
 - Good stability once the target is reached
-- The algorithm is totally incapable of getting out of the local minima for the starting conditions
 - Defining an error function that behave linearly is difficult, especially when trying to combine distance and angle
-- The algorithm has tunning knobs (angle offset per iteration, learning rate) that are also difficult to define
-
+- The algorithm has tuning knobs (angle offset per iteration, learning rate) that are also difficult to define
+- Using an adaptative learning rate with large max values allow the algorithm to get out of local minimas and to keep searching for an alternative converging pose. But it can take a humongous amount of iterations to reach convergence, and can induce stability issues.
 
 ### CCD
 
@@ -40,7 +39,7 @@ Characteristics :
 
 ### Getting out of local minimas
 
-Both algorithms are iterative, and have a common issue : they will converge toward a local minima given the starting conditions (initial joint angles). Said otherwise, they usually will get stuck in a suboptimal angular solution that will never converge. Finding the optimal solution (or at least a solution that reach the target) requires changing the starting conditions and check convergence, which can end up extremly computationally intensive.
+Both algorithms are iterative, and have a common issue : they will converge toward a local minima given the starting conditions (initial joint angles). Said otherwise, they often will get stuck in a suboptimal angular solution that will never converge. Finding the optimal solution (or at least a solution that reach the target) requires changing the starting conditions and check convergence, which can end up extremly computationally intensive.
 
 From limited testing, to find a global minima with decent confidence, each joint need to be tested in at least 3 positions : a neutral (middle point between min and max), positive, negative. This quickly get out of hand computationally-wise : testing 3 solutions for a kinematic chain with 9 joints means 3^9 = 19683 combinations. In a basic C# implementation, this can end up taking a few minutes to complete. This being said, keeping that example, by carefully choosing the order in which combinations are tested (neutral first, then alternating pos/neg starting with joints closer to the root), a satisfactory minima is usually found in the first 100 iterations, and limited testing show that if no solution is found by the 1000th iteration, there is very rarely one latter.
 

@@ -8,16 +8,13 @@ using Debug = UnityEngine.Debug;
 
 // TODO :
 // PRIORITY 0
-// - handle "Invert Direction"
 // - merge effector and root avoidance as a single "collision avoidance" slider
-// - reimplement the status reading, with state and error values while tracking
 // PRIORITY 1
 // - finalize localization support
 // - "help" button pointing to the wiki
 // - Put together an user guide on the wiki
 // PRIORITY 2
 // - auto-binding/unbinding of axis groups to keyboard controls
-// - handle locked / unpowered servos (just don't try to move them)
 // - auto-lock / auto-unlock servos ?
 // PRIORITY 3
 // - actual collision avoidance
@@ -95,31 +92,21 @@ namespace EasyRobotics
         private static string[] TrackingModeOptions => _trackingModeOptions ?? (_trackingModeOptions = new[]
             { LOC_PAW_CONTINOUS, LOC_PAW_ONREQUEST });
 
-        [KSPField(guiActive = true, guiActiveEditor = true)]
-        public string pawStatus;
-
-        private static string LOC_PAW_STATUS = "IK Status";
-        private static string LOC_PAW_STATUS_READY = "Ready";
-        private static string LOC_PAW_STATUS_TRACKING = "Tracking";
-        private static string LOC_PAW_STATUS_NOEFFECTOR = "No effector selected";
-        private static string LOC_PAW_STATUS_NOSERVOS = "No servos selected";
-        private static string LOC_PAW_STATUS_INVALID = "Invalid servo chain";
-        private static string LOC_PAW_STATUS_NOTARGET = "No target selected";
-
-        [KSPField(guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None, enabledText = "", disabledText = "")]
+        [KSPField(guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None, enabledText = "", disabledText = "")]
         private bool pawServoSelect;
-
+        private UI_Toggle pawServoSelect_UIControl;
         private static string LOC_PAW_SERVOSELECT = "Select servos";
 
-        [KSPField(guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
         private bool pawEffectorSelect;
-
         private UI_Toggle pawEffectorSelect_UIControl;
         private static string LOC_PAW_EFFECTORSELECT = "Effector";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawEffectorNode;
-
         private BaseField pawEffectorNode_Field;
         private UI_ChooseOption pawEffectorNode_UIControl;
         private static string LOC_PAW_EFFECTORNODE = "Effector node";
@@ -127,9 +114,9 @@ namespace EasyRobotics
         private static string LOC_PAW_GRAPPLENODE = "Grapple node";
         private AttachNode virtualEffectorDockingNode;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawEffectorDir;
-
         private BaseField pawEffectorDir_Field;
         private static string LOC_PAW_EFFECTORDIR = "Effector direction";
         private static string LOC_PAW_UP = "UP";
@@ -139,142 +126,149 @@ namespace EasyRobotics
         private static string LOC_PAW_RIGHT = "RIGHT";
         private static string LOC_PAW_LEFT = "LEFT";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiUnits = "m")] [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 2f, stepIncrement = 0.05f)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiUnits = "m")] 
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 2f, stepIncrement = 0.05f)]
         public float pawEffectorOffset;
-
         private BaseField pawEffectorOffset_Field;
         private static string LOC_PAW_EFFECTOROFFSET = "Effector offset";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
         private bool pawServoGizmosEnabled = false;
-
         private static string LOC_PAW_SERVOGIZMOS = "Servo gizmos";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
         private bool pawTrackingGizmosEnabled = true;
-
         private static string LOC_PAW_TRACKINGGIZMOS = "Target/effector gizmos";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiFormat = "P0")] [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0.1f, maxValue = 2.5f, stepIncrement = 0.1f)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiFormat = "P0")] 
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0.1f, maxValue = 2.5f, stepIncrement = 0.1f)]
         public float learningRateFactor = 1f;
-
         private static string LOC_PAW_LEARNINGRATE = "Learning rate";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
-        public int pawControlMode;
+        [KSPField(guiActive = true, guiActiveEditor = true)]
+        public string pawStatus;
+        private static string LOC_PAW_STATUS = "Status";
+        private static string LOC_PAW_STATUS_READY = "Ready";
+        private static string LOC_PAW_STATUS_TRACKING = "Tracking";
+        private static string LOC_PAW_STATUS_NOEFFECTOR = "No effector selected";
+        private static string LOC_PAW_STATUS_NOSERVOS = "No servos selected";
+        private static string LOC_PAW_STATUS_INVALID = "Invalid servo chain";
+        private static string LOC_PAW_STATUS_NOTARGET = "No target selected";
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        public int pawControlMode;
         private BaseField pawControlMode_Field;
         private UI_ChooseOption pawControlMode_UIControl;
         private static string LOC_PAW_CONTROLMODE = "Control mode";
         private static string LOC_PAW_CONTROLFREE = "Free";
         private static string LOC_PAW_CONTROLTARGET = "Target";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawTrackingMode = (int)ExecutionMode.Continuous;
-
         private static string LOC_PAW_TRACKINGMODE = "Tracking mode";
         private static string LOC_PAW_CONTINOUS = "Continuous";
         private static string LOC_PAW_ONREQUEST = "On request";
 
         [KSPEvent(guiActive = true, guiActiveEditor = true)]
         private void pawManualExecute() => OnUIManualModeExecute();
-
         private BaseEvent pawManualExecute_Event;
         private static string LOC_PAW_EXECUTE = "Request execution";
 
 
         [KSPEvent(guiActive = true, guiActiveEditor = true)]
         private void pawResetOffsets() => OnUIResetPosRotOffsets();
-
         private static string LOC_PAW_RESETOFFSETS = "Reset pos/rot offsets";
 
         [KSPEvent(guiActive = true, guiActiveEditor = true)]
         private void pawResetToZero() => ResetToZero();
-
         private static string LOC_PAW_RESET = "Reset all servo positions";
 
 
-        [KSPField(guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
         private bool pawTargetSelect;
-
         private UI_Toggle pawTargetSelect_UIControl;
         private static string LOC_PAW_TARGET = "Target";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawTargetNode;
-
         private BaseField pawTargetNode_Field;
         private UI_ChooseOption pawTargetNode_UIControl;
         private static string LOC_PAW_TARGETNODE = "Target node";
         private AttachNode virtualTargetDockingNode;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)]
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawTargetDir;
-
         private BaseField pawTargetDir_Field;
         private static string LOC_PAW_TARGETDIR = "Target direction";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_ChooseOption(affectSymCounterparts = UI_Scene.None)]
         public int pawTrackingConstraint = (int)TrackingConstraint.PositionAndDirection;
-
         private static string LOC_PAW_CONSTRAINT = "Constraint";
         private static string LOC_PAW_POSITION = "Position";
         private static string LOC_PAW_POSANDDIR = "Pos+Direction";
         private static string LOC_PAW_POSANDROT = "Pos+Rotation";
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiFormat = "0m;0m;Automatic")] [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 100f, stepIncrement = 1f)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiFormat = "0m;0m;Automatic")] 
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 100f, stepIncrement = 1f)]
         public float pawCoordinatesRange;
-
         private BaseField pawCoordinatesRange_Field;
         private static string LOC_PAW_COORDINATESRANGE = "Position range";
 
-        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesX;
-
         private BaseAxisField pawCoordinatesX_Field;
         private UI_FloatRange pawCoordinatesX_UIControl;
         private static string LOC_PAW_MANUALX = "Right/left";
 
-        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesY;
-
         private BaseAxisField pawCoordinatesY_Field;
         private UI_FloatRange pawCoordinatesY_UIControl;
         private static string LOC_PAW_MANUALY = "Up/down";
 
-        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(isPersistant = true, guiFormat = "0.00m", incrementalSpeed = 30f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.01f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesZ;
-
         private BaseAxisField pawCoordinatesZ_Field;
         private UI_FloatRange pawCoordinatesZ_UIControl;
         private static string LOC_PAW_MANUALZ = "Forward/Back";
 
-        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesPitch;
-
         private BaseAxisField pawCoordinatesPitch_Field;
         private static string LOC_PAW_MANUALPITCH = "Pitch offset";
 
-        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesYaw;
-
         private BaseAxisField pawCoordinatesYaw_Field;
         private static string LOC_PAW_MANUALYAW = "Yaw offset";
 
-        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
+        [KSPAxisField(guiFormat = "0.0°", incrementalSpeed = 30f, minValue = -2.5f, maxValue = 2.5f, axisMode = KSPAxisMode.Incremental, guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 0.0001f, minValue = -2.5f, maxValue = 2.5f, affectSymCounterparts = UI_Scene.None)]
         public float pawCoordinatesRoll;
-
         private BaseAxisField pawCoordinatesRoll_Field;
         private static string LOC_PAW_MANUALROLL = "Roll offset";
 
-        [KSPField(isPersistant = true, guiFormat = "0.0°", guiActive = true, guiActiveEditor = true)] [UI_FloatRange(stepIncrement = 1f, minValue = -180f, maxValue = 180f, affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiFormat = "0.0°", guiActive = true, guiActiveEditor = true)] 
+        [UI_FloatRange(stepIncrement = 1f, minValue = -180f, maxValue = 180f, affectSymCounterparts = UI_Scene.None)]
         public float pawTargetRoll;
-
         private BaseField pawTargetRoll_Field;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true)] 
+        [UI_Toggle(affectSymCounterparts = UI_Scene.None)]
         public bool trackingEnabled;
-
         private BaseField trackingEnabled_Field;
         private static string LOC_PAW_TRACKING = "Tracking";
         private static string LOC_PAW_ENABLED = "Enabled";
@@ -305,7 +299,8 @@ namespace EasyRobotics
 
         public ExecutionMode CurrentExecutionMode => (ExecutionMode)pawTrackingMode;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "effector avoidance")] [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "effector avoidance")] 
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
         public float effectorAvoidance = 0.1f;
 
         private void OnEffectorAvoidanceModified(object _)
@@ -314,7 +309,8 @@ namespace EasyRobotics
             ServoJoint.totalWeight = ServoJoint.targetDistWeight + ServoJoint.targetAngleWeight + ServoJoint.effectorDistWeight + ServoJoint.rootDistWeight;
         }
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "root avoidance")] [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "root avoidance")] 
+        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
         public float rootAvoidance = 0.1f;
 
         private void OnRootAvoidanceModified(object _)
@@ -344,14 +340,15 @@ namespace EasyRobotics
                         baseField.OnValueModified += OnRootAvoidanceModified;
                         break;
 
-
                     case nameof(pawStatus):
                         baseField.guiName = LOC_PAW_STATUS;
+                        baseField.group = executionGroup;
                         break;
                     case nameof(pawServoSelect):
                         baseField.group = configGroup;
                         baseField.guiName = LOC_PAW_SERVOSELECT;
                         baseField.OnValueModified += OnUIAddServos;
+                        pawServoSelect_UIControl = (UI_Toggle)(isEditor ? baseField.uiControlEditor : baseField.uiControlFlight);
                         break;
                     case nameof(pawEffectorSelect):
                         baseField.group = configGroup;
@@ -618,13 +615,12 @@ namespace EasyRobotics
             bool trackingEnabledOnStart = trackingEnabled;
 
             OnEffectorPartChanged(out _);
-            OnJointListChanged(true, out _);
+            OnIKConfigurationBecameInvalid();
             OnTargetPartChanged();
             OnControlModeChanged();
             OnTrackingModeChanged();
             OnTrackingToggled(out _);
             OnTargetPositionChanged();
-            OnJointListChanged(true, out _);
 
             if (trackingEnabledOnStart)
                 trackingEnabled_Field.SetValue(true, this);
@@ -644,7 +640,7 @@ namespace EasyRobotics
             if (pawServoGizmosEnabled)
                 ShowChainGizmos(true);
 
-            _syncOnUpdateCoroutine = StartCoroutine(SyncOnUpdateCoroutine());
+            _pawUpdateCoroutine = StartCoroutine(PAWUpdateCoroutine());
         }
 
         private void OnPAWDismiss(Part pawPart)
@@ -656,24 +652,28 @@ namespace EasyRobotics
             ShowTargetGizmo(false);
             ShowChainGizmos(false);
 
-            if (_syncOnUpdateCoroutine != null)
+            if (_pawUpdateCoroutine != null)
             {
-                StopCoroutine(_syncOnUpdateCoroutine);
-                _syncOnUpdateCoroutine = null;
+                StopCoroutine(_pawUpdateCoroutine);
+                _pawUpdateCoroutine = null;
             }
 
             SelectionModeExit();
         }
 
-        private Coroutine _syncOnUpdateCoroutine;
+        private Coroutine _pawUpdateCoroutine;
 
-        private IEnumerator SyncOnUpdateCoroutine()
+        private IEnumerator PAWUpdateCoroutine()
         {
             while (true)
             {
                 if (!trackingEnabled)
                 {
                     SyncAllTransforms();
+                }
+                else
+                {
+                    UpdateStatusOnTracking();
                 }
 
                 if (pawTrackingGizmosEnabled)
@@ -809,13 +809,13 @@ namespace EasyRobotics
                 case ConstructionEventType.PartTweaked:
                     if (part.RefEquals(effectorPart))
                     {
-                        configurationIsValid = false;
+                        OnIKConfigurationBecameInvalid();
                     }
                     else
                     {
                         for (int i = ikChain.Count; i-- > 0;)
                             if (ikChain[i].BaseServo.part.RefEquals(part))
-                                configurationIsValid = false;
+                                OnIKConfigurationBecameInvalid();
                     }
 
                     break;
@@ -829,10 +829,10 @@ namespace EasyRobotics
 
         private void OnVesselDecoupleOrUndock(Vessel oldVessel, Vessel newVessel)
         {
-            if (vessel != oldVessel && vessel != newVessel)
+            if (vessel.RefNotEquals(oldVessel) && vessel.RefNotEquals(newVessel))
                 return;
 
-            List<Part> otherVesselParts = vessel == oldVessel ? newVessel.parts : oldVessel.parts;
+            List<Part> otherVesselParts = vessel.RefEquals(oldVessel) ? newVessel.parts : oldVessel.parts;
 
             for (int i = otherVesselParts.Count; i-- > 0;)
                 OnPartRemoved(otherVesselParts[i]);
@@ -908,7 +908,7 @@ namespace EasyRobotics
                 {
                     ikChain[i].OnDestroy();
                     ikChain.RemoveAt(i);
-                    OnJointListChanged(true, out _);
+                    OnIKConfigurationBecameInvalid();
                     break;
                 }
             }
@@ -926,7 +926,7 @@ namespace EasyRobotics
             if (trackingEnabled)
             {
                 DisableTracking();
-                PostScreenMessage("Same-vessel docking confirmed, disabling tracking...", Color.green);
+                PostScreenMessage("Same-vessel docking confirmed, disabling tracking...");
             }
         }
 
@@ -975,7 +975,7 @@ namespace EasyRobotics
         {
             OnTrackingToggled(out string error);
             if (error != null)
-                PostScreenMessage(error, Color.red);
+                PostScreenMessage(error, ScreenMessageType.Error);
         }
 
         private void OnUIManualModeExecute() => ExecuteIKOnce();
@@ -1155,7 +1155,7 @@ namespace EasyRobotics
         {
             if (trackingEnabled)
             {
-                if (ConfigureIKChain(out error, out bool ikJointListChanged))
+                if (!IsServoChainLocked(out error) && ConfigureIKChain(out error))
                 {
                     _trackingCoroutine = StartCoroutine(TrackingCoroutine());
                 }
@@ -1182,7 +1182,40 @@ namespace EasyRobotics
             OnStatusChanged();
         }
 
-        private void OnJointListChanged(bool forcePAWUpdate, out string error)
+        private bool IsServoChainLocked(out string error)
+        {
+            error = null;
+            int jointCount = ikChain.Count;
+            bool locked = false;
+            for (int i = jointCount; i-- > 0;)
+            {
+                ServoJoint servoJoint = ikChain[i];
+                if (!servoJoint.CanMove)
+                {
+                    if (error is null)
+                        error = string.Empty;
+                    else
+                        error += '\n';
+
+                    if (servoJoint.BaseServo.servoIsLocked)
+                        error += $"{servoJoint.BaseServo.PartTitle()} is locked";
+                    else
+                        error += $"{servoJoint.BaseServo.PartTitle()} isn't motorized";
+
+                    servoJoint.BaseServo.part.Blink(Color.red, 5f);
+                    locked = true;
+                }
+            }
+
+            return locked;
+        }
+
+        private void OnIKConfigurationBecameInvalid()
+        {
+            OnIKConfigurationBecameInvalid(out _);
+        }
+
+        private void OnIKConfigurationBecameInvalid(out string error)
         {
             if (trackingEnabled)
             {
@@ -1192,7 +1225,7 @@ namespace EasyRobotics
 
             configurationIsValid = false;
 
-            ConfigureIKChain(out error, out bool ikJointListChanged);
+            ConfigureIKChain(out error);
 
             OnStatusChanged();
         }
@@ -1257,7 +1290,7 @@ namespace EasyRobotics
                 pawEffectorNode_Field.SetValue(selectedNode, this);
             }
 
-            string effectorName = effectorPart != null ? effectorPart.partInfo.title : LOC_PAW_NONE;
+            string effectorName = effectorPart != null ? effectorPart.PartTitle() : LOC_PAW_NONE;
             pawEffectorSelect_UIControl.enabledText = effectorName;
             pawEffectorSelect_UIControl.disabledText = effectorName;
 
@@ -1265,7 +1298,7 @@ namespace EasyRobotics
 
             configurationIsValid = false;
 
-            ConfigureIKChain(out error, out bool ikJointListChanged);
+            ConfigureIKChain(out error);
 
             OnStatusChanged();
         }
@@ -1325,7 +1358,7 @@ namespace EasyRobotics
                 pawTargetNode_Field.SetValue(selectedNode, this);
             }
 
-            string targetName = targetPart.IsNotNullOrDestroyed() ? targetPart.partInfo.title : LOC_PAW_NONE;
+            string targetName = targetPart.IsNotNullOrDestroyed() ? targetPart.PartTitle() : LOC_PAW_NONE;
             pawTargetSelect_UIControl.enabledText = targetName;
             pawTargetSelect_UIControl.disabledText = targetName;
 
@@ -1507,17 +1540,21 @@ namespace EasyRobotics
                     break;
             }
 
+            string servoSelectLabel = null;
+
             if (ikChain.Count == 0)
             {
-                pawStatus = LOC_PAW_STATUS_NOSERVOS;
+                pawStatus = $"<color=orange><b>{LOC_PAW_STATUS_NOSERVOS}</b></color>";
+                servoSelectLabel = pawStatus;
             }
             else if (effectorPart.IsNullOrDestroyed())
             {
-                pawStatus = LOC_PAW_STATUS_NOEFFECTOR;
+                pawStatus = $"<color=orange><b>{LOC_PAW_STATUS_NOEFFECTOR}</b></color>";
             }
             else if (!configurationIsValid)
             {
-                pawStatus = LOC_PAW_STATUS_INVALID;
+                pawStatus = $"<color=orange><b>{LOC_PAW_STATUS_INVALID}</b></color>";
+                servoSelectLabel = pawStatus;
             }
             else if (!trackingEnabled)
             {
@@ -1529,11 +1566,27 @@ namespace EasyRobotics
             else
             {
                 pawStatus = LOC_PAW_STATUS_TRACKING;
+            }
 
-                if (CurrentExecutionMode == ExecutionMode.Continuous)
-                    pawStatus += $" ({LOC_PAW_CONTINOUS})";
+            if (servoSelectLabel == null)
+                servoSelectLabel = $"{ikChain.Count} servos";
+
+            pawServoSelect_UIControl.enabledText = servoSelectLabel;
+            pawServoSelect_UIControl.disabledText = servoSelectLabel;
+        }
+
+        private void UpdateStatusOnTracking()
+        {
+            if (ikTargetReached)
+            {
+                if (servosTargetReached)
+                    pawStatus = "Locked on target";
                 else
-                    pawStatus += $" ({LOC_PAW_ONREQUEST})";
+                    pawStatus = "Waiting for servos to reach target";
+            }
+            else
+            {
+                pawStatus = $"Searching solution, error: {targetPosError:F2}m / {targetAngleError:F0}°";
             }
         }
 
@@ -1585,9 +1638,9 @@ namespace EasyRobotics
             Parent
         }
 
-        private bool ConfigureIKChain(out string error, out bool ikJointListChanged)
+        private bool ConfigureIKChain(out string error)
         {
-            ikJointListChanged = false;
+            error = null;
 
             if (effectorPart == null)
             {
@@ -1604,17 +1657,16 @@ namespace EasyRobotics
             }
 
             if (configurationIsValid)
-            {
-                error = null;
                 return true;
-            }
 
             DisableJointHierarchy();
 
             // put all joints in a dictionary
             jointDict.Clear();
             lastIKChain.Clear();
+
             int jointCount = ikChain.Count;
+
             for (int i = jointCount; i-- > 0;)
             {
                 ServoJoint joint = ikChain[i];
@@ -1754,23 +1806,16 @@ namespace EasyRobotics
                 //   - if the servo moving part is connected to the child, joint is inverted
                 //   - if the servo moving part is connected to the parent, joint isn't inverted
                 joint.IsAttachedByMovingPart = effectorRelation == Relation.Child ? parentIsAttachedToMovingPart : !parentIsAttachedToMovingPart;
-                joint.OnModified(ikChain);
+                joint.OnModified();
                 joint.SyncWithServoTransform();
             }
 
             effector.SetParentKeepWorldPosAndRot(ikChain[0].movingTransform);
 
-            for (int i = ikChain.Count; i-- > 0;)
-            {
-                if (ikChain[i] != lastIKChain[i])
-                    ikJointListChanged = true;
-            }
-
             OnCoordinatesRangeChanged();
 
             lastIKChain.Clear();
             configurationIsValid = true;
-            error = null;
             return true;
         }
 
@@ -1961,7 +2006,7 @@ namespace EasyRobotics
                         selectedPart.Highlight(Part.defaultHighlightNone);
                     }
 
-                    PostScreenMessage(message, success ? Color.green : Color.yellow);
+                    PostScreenMessage(message, success ? ScreenMessageType.Message : ScreenMessageType.Warning);
                     break;
                 }
                 case SelectionMode.SelectEffector:
@@ -1969,7 +2014,7 @@ namespace EasyRobotics
                     if (pressedKey == KeyCode.Delete && effectorPart.IsNotNullOrDestroyed())
                     {
                         effectorPart.Highlight(Part.defaultHighlightNone);
-                        PostScreenMessage("No effector selected", Color.yellow);
+                        PostScreenMessage("No effector selected", ScreenMessageType.Warning);
                         effectorPart = null;
                         OnEffectorPartChanged(out _);
                         break;
@@ -1982,14 +2027,14 @@ namespace EasyRobotics
 
                     if (!TryAddEffector(selectedPart, out string message))
                     {
-                        PostScreenMessage(message, Color.yellow);
+                        PostScreenMessage(message, ScreenMessageType.Warning);
                         break;
                     }
 
                     if (previousEffector.IsNotNullOrDestroyed())
                         previousEffector.Highlight(Part.defaultHighlightNone);
 
-                    PostScreenMessage(message, Color.green);
+                    PostScreenMessage(message);
                     return false;
                 }
                 case SelectionMode.SelectPartTarget:
@@ -1997,7 +2042,7 @@ namespace EasyRobotics
                     if (pressedKey == KeyCode.Delete && targetPart.IsNotNullOrDestroyed())
                     {
                         targetPart.Highlight(Part.defaultHighlightNone);
-                        PostScreenMessage("No target selected", Color.yellow);
+                        PostScreenMessage("No target selected", ScreenMessageType.Warning);
                         targetPart = null;
                         OnTargetPartChanged();
                         break;
@@ -2011,7 +2056,7 @@ namespace EasyRobotics
 
                     targetPart = selectedPart;
                     OnTargetPartChanged();
-                    PostScreenMessage($"<b>{selectedPart.partInfo.title}</b> selected as target", Color.green);
+                    PostScreenMessage($"<b>{selectedPart.PartTitle()}</b> selected as target");
                     return false;
                 }
             }
@@ -2024,7 +2069,7 @@ namespace EasyRobotics
             BaseServo servo = potentialServoPart.FindModuleImplementing<BaseServo>();
             if (servo.IsNullOrDestroyed())
             {
-                message = $"No servo on <b>{potentialServoPart.partInfo.title}</b>";
+                message = $"No servo on <b>{potentialServoPart.PartTitle()}</b>";
                 return false;
             }
 
@@ -2034,13 +2079,13 @@ namespace EasyRobotics
                 ServoJoint joint = ikChain[i];
                 if (joint.BaseServo == servo)
                 {
-                    message = $"Servo <b>{servo.part.partInfo.title}</b> is already added";
+                    message = $"Servo <b>{servo.part.PartTitle()}</b> is already added";
                     return false;
                 }
 
                 if (joint.BaseServo.part == effectorPart)
                 {
-                    message = $"<b>{servo.part.partInfo.title}</b> is the effector";
+                    message = $"<b>{servo.part.PartTitle()}</b> is the effector";
                     return false;
                 }
             }
@@ -2056,16 +2101,19 @@ namespace EasyRobotics
             }
             else
             {
-                message = $"No rotation servo on <b>{potentialServoPart.partInfo.title}</b>";
+                message = $"No rotation servo on <b>{potentialServoPart.PartTitle()}</b>";
                 return false;
             }
 
             ikChain.Add(newJoint);
-            OnJointListChanged(true, out string error);
+            OnIKConfigurationBecameInvalid(out string error);
             if (error != null && effectorPart.IsNotNullOrDestroyed())
-                PostScreenMessage(error, Color.red);
+                PostScreenMessage(error, ScreenMessageType.Error);
 
-            message = $"Servo <b>{servo.part.partInfo.title}</b> added";
+            if (IsServoChainLocked(out string lockedError))
+                PostScreenMessage(lockedError, ScreenMessageType.Warning);
+
+            message = $"Servo <b>{servo.PartTitle()}</b> added";
             return true;
         }
 
@@ -2075,20 +2123,20 @@ namespace EasyRobotics
             {
                 if (ikChain[i].BaseServo.part == potentialServoPart)
                 {
-                    message = $"Servo <b>{potentialServoPart.partInfo.title}</b> removed";
+                    message = $"Servo <b>{potentialServoPart.PartTitle()}</b> removed";
 
                     ikChain[i].OnDestroy();
                     ikChain.RemoveAt(i);
-                    OnJointListChanged(true, out string error);
+                    OnIKConfigurationBecameInvalid(out string error);
 
                     if (error != null && effectorPart.IsNotNullOrDestroyed())
-                        PostScreenMessage(error, Color.red);
+                        PostScreenMessage(error, ScreenMessageType.Error);
 
                     return true;
                 }
             }
 
-            message = $"<b>{potentialServoPart.partInfo.title}</b> isn't in the chain";
+            message = $"<b>{potentialServoPart.PartTitle()}</b> isn't in the chain";
             return false;
         }
 
@@ -2100,7 +2148,7 @@ namespace EasyRobotics
                 ServoJoint joint = ikChain[i];
                 if (joint.BaseServo.part == selectedPart)
                 {
-                    message = $"<b>{selectedPart.partInfo.title}</b> is a servo";
+                    message = $"<b>{selectedPart.PartTitle()}</b> is a servo";
                     return false;
                 }
             }
@@ -2108,18 +2156,39 @@ namespace EasyRobotics
             effectorPart = selectedPart;
             OnEffectorPartChanged(out string error);
             if (error != null && ikChain.Count > 0)
-                PostScreenMessage(error, Color.red);
-            message = $"<b>{selectedPart.partInfo.title}</b> selected as effector";
+                PostScreenMessage(error, ScreenMessageType.Error);
+            message = $"<b>{selectedPart.PartTitle()}</b> selected as effector";
             return true;
         }
 
-        private static void PostScreenMessage(string message, Color color)
+        private enum ScreenMessageType {Message, Warning, Error}
+
+        private static void PostScreenMessage(string message, ScreenMessageType messageType = ScreenMessageType.Message)
         {
+            Color color;
+            switch (messageType)
+            {
+                case ScreenMessageType.Warning:
+                    color = XKCDColors.Yellow;
+                    break;
+                case ScreenMessageType.Error:
+                    color = XKCDColors.LightRed;
+                    break;
+                default:
+                    color = XKCDColors.LimeGreen;
+                    break;
+            }
+
             ScreenMessages.PostScreenMessage(message, 3f, ScreenMessageStyle.UPPER_CENTER, color);
         }
 
 
         private Coroutine _trackingCoroutine;
+
+        private bool servosTargetReached;
+        private bool ikTargetReached;
+        private float targetAngleError;
+        private float targetPosError;
 
         private IEnumerator TrackingCoroutine()
         {
@@ -2127,7 +2196,7 @@ namespace EasyRobotics
             {
                 int jointCount = ikChain.Count;
 
-                bool servosTargetReached = true;
+                servosTargetReached = true;
                 for (int i = 0; i < jointCount; i++)
                 {
                     if (!ikChain[i].ServoTargetReached())
@@ -2153,17 +2222,17 @@ namespace EasyRobotics
 
                 float maxPosError = 0.025f;
                 float maxAngleError = 1.5f;
-                bool targetReached = IsTargetPosReached(maxPosError) && IsTargetRotReached(maxAngleError);
+                ikTargetReached = IsTargetPosReached(maxPosError) && IsTargetRotReached(maxAngleError);
 
-                if (!targetReached)
+                if (!ikTargetReached)
                 {
                     for (int i = 100; i-- > 0;)
                     {
                         for (int j = 0; j < ikChain.Count; j++)
                             ikChain[j].ExecuteGradientDescent(effector, target, CurrentTrackingConstraint, learningRateFactor);
 
-                        targetReached = IsTargetPosReached(maxPosError) && IsTargetRotReached(maxAngleError);
-                        if (targetReached)
+                        ikTargetReached = IsTargetPosReached(maxPosError) && IsTargetRotReached(maxAngleError);
+                        if (ikTargetReached)
                         {
                             //iterations = (100 - i).ToString();
                             break;
@@ -2173,6 +2242,9 @@ namespace EasyRobotics
                     for (int i = 0; i < jointCount; i++)
                         ikChain[i].SendRequestToServo();
                 }
+
+                targetPosError = GetTargetPosError();
+                targetAngleError = GetTargetAngleError();
 
                 yield return Lib.WaitForFixedUpdate;
             }
@@ -2356,6 +2428,8 @@ namespace EasyRobotics
             return sqrPosError <= posThreshold * posThreshold;
         }
 
+        private float GetTargetPosError() => Vector3.Distance(effector.Position, target.Position);
+
         private float GetTargetAngleErrorNormalized()
         {
             switch (CurrentTrackingConstraint)
@@ -2378,7 +2452,7 @@ namespace EasyRobotics
                 case TrackingConstraint.PositionAndRotation:
                     return Quaternion.Angle(effector.Rotation, target.Rotation * upToDown);
                 default:
-                    return -1f;
+                    return 0f;
             }
         }
 

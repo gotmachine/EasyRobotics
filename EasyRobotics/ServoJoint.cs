@@ -27,7 +27,7 @@ namespace EasyRobotics
         public abstract BaseServo BaseServo { get; }
         public bool IsAttachedByMovingPart { get; set; }
 
-        public abstract void OnModified(List<ServoJoint> ikChain);
+        public abstract void OnModified();
 
         public abstract void ExecuteGradientDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint, float learningRateFactor);
 
@@ -46,6 +46,8 @@ namespace EasyRobotics
         public abstract void SetGizmoColor(Color color);
 
         public abstract void OnDestroy();
+
+        public bool CanMove => !BaseServo.servoIsLocked && BaseServo.servoIsMotorized && BaseServo.servoMotorIsEngaged;
     }
 
     public abstract class ServoJoint<T> : ServoJoint where T : BaseServo
@@ -79,15 +81,19 @@ namespace EasyRobotics
 
         protected abstract bool HasAngleLimits { get; }
 
+        protected bool isInverted = false;
         private GameObject gizmo;
         private Material gizmoMaterial;
         private Quaternion upToAxis;
 
-        public override void OnModified(List<ServoJoint> ikChain)
+        public override void OnModified()
         {
             Axis = servo.GetMainAxis();
 
             if (IsAttachedByMovingPart)
+                Axis *= -1f;
+
+            if (isInverted)
                 Axis *= -1f;
 
             upToAxis = Quaternion.FromToRotation(Vector3.up, Axis);
@@ -106,6 +112,13 @@ namespace EasyRobotics
         // - else, move in the opposite direction
         public override void ExecuteGradientDescent(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint, float learningRateFactor)
         {
+            if (!CanMove)
+            {
+                RequestedAngle = ServoTargetAngle;
+                movingTransform.LocalRotation = Quaternion.AngleAxis(RequestedAngle, Axis);
+                return;
+            }
+
             Vector3 baseDir = PerpendicularAxis;
             Vector3 newDir = movingTransform.LocalRotation * PerpendicularAxis;
 
@@ -200,7 +213,8 @@ namespace EasyRobotics
 
         public override void SendRequestToServo()
         {
-            ServoTargetAngle = RequestedAngle;
+            if (CanMove)
+                ServoTargetAngle = RequestedAngle;
         }
 
         public override void SyncWithServoTransform(bool baseOnly = false)
@@ -317,11 +331,19 @@ namespace EasyRobotics
         {
             this.servo = servo;
             servoTargetAngleField = servo.Fields[nameof(ModuleRoboticRotationServo.targetAngle)];
-            OnModified(null);
+            isInverted = servo.inverted;
+            OnModified();
             baseTransform = new BasicTransform(null, servo.transform.position, servo.transform.rotation);
             movingTransform = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoTargetAngle, Axis), true);
+            servo.Fields[nameof(ModuleRoboticRotationServo.inverted)].OnValueModified += OnInverted;
         }
 
+        private void OnInverted(object val)
+        {
+            isInverted = servo.inverted;
+            OnModified();
+        }
+        
         protected override bool HasAngleLimits => !servo.allowFullRotation;
 
         public override Vector2 ServoMinMaxAngle => servo.softMinMaxAngles;
@@ -331,6 +353,13 @@ namespace EasyRobotics
             get => servo.JointTargetAngle;
             set => servoTargetAngleField.SetValue(value, servo);
         }
+
+        public override void OnDestroy()
+        {
+            base.OnDestroy();
+            if (servo.IsNotNullRef())
+                servo.Fields[nameof(ModuleRoboticRotationServo.inverted)].OnValueModified -= OnInverted;
+        }
     }
 
     public sealed class HingeServoJoint : RotatingServoJoint<ModuleRoboticServoHinge>
@@ -339,7 +368,7 @@ namespace EasyRobotics
         {
             this.servo = servo;
             servoTargetAngleField = servo.Fields[nameof(ModuleRoboticServoHinge.targetAngle)];
-            OnModified(null);
+            OnModified();
             baseTransform = new BasicTransform(null, servo.transform.position, servo.transform.rotation);
             movingTransform = new BasicTransform(baseTransform, Vector3.zero, Quaternion.AngleAxis(ServoTargetAngle, Axis), true);
         }
