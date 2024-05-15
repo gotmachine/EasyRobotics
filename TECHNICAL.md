@@ -3,8 +3,6 @@
 I've tried implementing two iterative IK algorithms : gradient descent and CCD (Cyclic Coordinate Descent). 
 Here is sumary of the strength and weakness of each, according to my findings.
 
-
-
 ### Gradient descent
 
 Gradient descent works by minimizing the output of an error function. Each iteration can be summarized like this : 
