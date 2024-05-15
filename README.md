@@ -41,14 +41,17 @@ This can be done from the `IK Configuration` section :
 - `Learning rate` : The IK algorithm works by trying to move the servos a little bit to see if that new pose is closer or further away from the target. The learning rate is how big those small moves are. Increasing it can greatly help the algorithm to find a solution, but lowering it can be necessary to avoid the solution "jittering" around the target. How that value should be set depends on the chain configuration, it is recommended to do some editor-time testing to tune it.
 
 #### IK Execution Control
-Once the servos and effector are properly configured, the `Status` label in the `IK Execution Control` tab should show `ready`. That label will also indicate what the IK controller state is when it is active.
-
 <img align="left" hspace="10" src="https://raw.githubusercontent.com/gotmachine/EasyRobotics/master/Images/IKExec.png ">
 
-- `Control mode` : Change how the target (red gizmo) is controled. `Free` means the target position is relative to the first servo of the chain. `Target` means the target a part (see the "IK target" section below).
-- `Tracking mode` :
-  - `Continous` unlock the `Tracking` toggle. When enabled, the IK controller is always active and will continously try to reach the target. 
-  - `On request` unlock the `Request execution` button, allowing you to request a single execution of the IK controller. Requesting multiple executions is usually necessary for a solution to be found.
+Once the servos and effector are properly configured, the `Status` label in the `IK Execution Control` tab should show `ready`. That label will also indicate what the IK controller state is when it is active.
+- `Control mode : Free` : The target (red gizmo) position is relative to the first servo of the chain. 
+- `Control mode : Target` : The target is a part (see the "IK target" section below).
+- `Tracking mode : Continous` : Unlock the `Tracking` toggle. When enabled, the IK controller is always active and will continously try to reach the target. 
+- `Tracking mode : On request` : Unlock the `Request execution` button, allowing you to request a single execution of the IK controller.
+- `Constraint : Position` : The effector will try to reach the target positon from any angle.
+- `Constraint : Pos+Direction` : The effector will also try to match the direction of the target, but ignoring its "roll".
+- `Constraint : Pos+Rotation` : The effector will try to match the full rotation of the target, including its "roll".
+
 
 
 ### Changelog
