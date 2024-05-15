@@ -7,17 +7,14 @@ using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 // TODO :
-// PRIORITY 0
-// - merge effector and root avoidance as a single "collision avoidance" slider
 // PRIORITY 1
 // - finalize localization support
 // - "help" button pointing to the wiki
 // - Put together an user guide on the wiki
 // PRIORITY 2
-// - auto-binding/unbinding of axis groups to keyboard controls
+// - auto-binding / unbinding of axis groups to keyboard controls
 // - auto-lock / auto-unlock servos ?
 // PRIORITY 3
-// - actual collision avoidance
 // - linear servos support
 // - alternate poses checking (aka, get out of local minima)
 
@@ -185,7 +182,7 @@ namespace EasyRobotics
 
         [KSPEvent(guiActive = true, guiActiveEditor = true)]
         private void pawResetToZero() => ResetToZero();
-        private static string LOC_PAW_RESET = "Reset all servo positions";
+        private static string LOC_PAW_RESET = "Reset all servos positions";
 
 
         [KSPField(guiActive = true, guiActiveEditor = true)] 
@@ -299,26 +296,6 @@ namespace EasyRobotics
 
         public ExecutionMode CurrentExecutionMode => (ExecutionMode)pawTrackingMode;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "effector avoidance")] 
-        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
-        public float effectorAvoidance = 0.1f;
-
-        private void OnEffectorAvoidanceModified(object _)
-        {
-            ServoJoint.effectorDistWeight = effectorAvoidance;
-            ServoJoint.totalWeight = ServoJoint.targetDistWeight + ServoJoint.targetAngleWeight + ServoJoint.effectorDistWeight + ServoJoint.rootDistWeight;
-        }
-
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "root avoidance")] 
-        [UI_FloatRange(affectSymCounterparts = UI_Scene.None, minValue = 0f, maxValue = 1f, stepIncrement = 0.01f)]
-        public float rootAvoidance = 0.1f;
-
-        private void OnRootAvoidanceModified(object _)
-        {
-            ServoJoint.rootDistWeight = rootAvoidance;
-            ServoJoint.totalWeight = ServoJoint.targetDistWeight + ServoJoint.targetAngleWeight + ServoJoint.effectorDistWeight + ServoJoint.rootDistWeight;
-        }
-
         public override void OnAwake()
         {
             // onPartPersistentIdChanged can be called before OnStart(), so hook it right now
@@ -333,13 +310,6 @@ namespace EasyRobotics
             {
                 switch (baseField.name)
                 {
-                    case nameof(effectorAvoidance):
-                        baseField.OnValueModified += OnEffectorAvoidanceModified;
-                        break;
-                    case nameof(rootAvoidance):
-                        baseField.OnValueModified += OnRootAvoidanceModified;
-                        break;
-
                     case nameof(pawStatus):
                         baseField.guiName = LOC_PAW_STATUS;
                         baseField.group = executionGroup;
@@ -514,8 +484,6 @@ namespace EasyRobotics
                         baseEvent.group = executionGroup;
                         baseEvent.guiName = LOC_PAW_RESET;
                         break;
-
-
                 }
             }
 
@@ -1097,7 +1065,7 @@ namespace EasyRobotics
                     pawCoordinatesZ = targetPos.z;
                     target.Rotation = targetRot;
                 }
-                else
+                else if (ikChain.Count > 0)
                 {
                     pawCoordinatesX = 0f;
                     pawCoordinatesY = 0f;
@@ -1119,10 +1087,8 @@ namespace EasyRobotics
             UpdateExecutionPAWVisibility();
             DisableTracking();
 
-            // TODO : switch target model to to cross for position, cross+arrows for direction, full gizmo for rotation
+            // TODO : switch target model to cross for position, cross+arrows for direction, full gizmo for rotation
         }
-
-
 
         private void DisableTracking()
         {

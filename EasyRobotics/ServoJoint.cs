@@ -10,9 +10,7 @@ namespace EasyRobotics
     {
         public static double targetDistWeight = 1.0;
         public static double targetAngleWeight = 1.0;
-        public static double effectorDistWeight = 0.2;
-        public static double rootDistWeight = 0.2;
-        public static double totalWeight = targetDistWeight + targetAngleWeight + effectorDistWeight + rootDistWeight;
+        public static double totalWeight = targetDistWeight + targetAngleWeight;
 
         public enum Pose
         {
@@ -179,34 +177,12 @@ namespace EasyRobotics
             return Math.Pow(UtilMath.Clamp01(angle), 0.5);
         }
 
-        // As a poor-man collision avoidance mechanism, maximize the distance between each servo
-        // and the effector. This is somewhat effective at ensuring the algorithm select a solution
-        // where the arm is "behind" the effector.
-        private double NormalizedEffectorDistance(BasicTransform effector)
-        {
-            double error = Lib.Distance(effector.Position, baseTransform.Position);
-            return UtilMath.Clamp01(1.0 / (0.1 * error + 1.0));
-        }
-
-        // same, but maximizing each servo distance to the root
-        private double NormalizedRootDistance()
-        {
-            BasicTransform rootTransform = baseTransform.Root;
-            if (rootTransform == baseTransform)
-                return 0.0;
-
-            double error = Lib.Distance(rootTransform.Position, baseTransform.Position);
-            return UtilMath.Clamp01(1.0 / (0.1 * error + 1.0));
-        }
-
         // see https://www.desmos.com/calculator/zkdmdlejpc for a visualization of the distance / angle error functions
         private double Error(BasicTransform effector, BasicTransform target, TrackingConstraint trackingConstraint)
         {
             double error =
                 NormalizedDistance(effector, target) * targetDistWeight
-                + NormalizedAngle(effector, target, trackingConstraint) * targetAngleWeight
-                + NormalizedEffectorDistance(effector) * effectorDistWeight
-                + NormalizedRootDistance() * rootDistWeight;
+                + NormalizedAngle(effector, target, trackingConstraint) * targetAngleWeight;
 
             return UtilMath.Clamp01(error / totalWeight);
         }
