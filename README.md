@@ -8,7 +8,7 @@ EasyRobotics is available from the Part Action Window (PAW) for the KAL-1000 par
 
 ### Download and installation
 
-Compatible with **KSP 1.12.3** to **1.12.5** - Available on CKAN
+Compatible with **KSP 1.12.3** to **1.12.5**
 
 **Manual installation**
 
@@ -22,20 +22,23 @@ Compatible with **KSP 1.12.3** to **1.12.5** - Available on CKAN
 
 MIT
 
+### Recommended mods
+
+- [**htRobotics**](https://github.com/benjee10/htRobotics) by Benjee : Stockalike Canadarm 1 & 2 parts
+- [**MissingRobotics**](https://forum.kerbalspaceprogram.com/index.php?/topic/197841-missing-robotics/) by Aahz88 : Various additional robotic parts, including a set of tubes and rotational joints to make manipulators.
+
 ### User manual
 
 <img align="left" width="42" height="58" src="https://raw.githubusercontent.com/gotmachine/EasyRobotics/master/Images/KAL-1000.png">
 
 All controls are available from the KAL-1000 Part Action Window, both in the editor and in flight.
-<br/>The KAL-1000 part can be placed anywhere, but it must stay on the same vessel as the servos and effector parts, something to keep in mind for "walking arms" designs such as the ISS canadarm.
+<br/>The KAL-1000 part can be placed anywhere, but it must stay on the same vessel as the servo and effector parts, something to keep in mind for "walking arms" designs such as the ISS canadarm.
 
 <img src="https://raw.githubusercontent.com/gotmachine/EasyRobotics/master/Images/PAW.png ">
 
-#### IK chain setup
+#### IK Configuration
 The first step for using the IK controller is to select which servos will be used, as well as which part is to be used as the effector.
 This can be done from the `IK Configuration` section :
-
-
 
 - `Select servos` : Enter the servo selection mode. Hover the mouse on a servo part, then press `ENTER` to add it, or `DELETE` to remove it. To get out of the selection mode, either click again on the button or press `ESC`. You may select as many servos as you want and in any order, but they must form a single "chain". Selected servos and their rotation axis can be visualized by enabling the `Servo gizmos` toggle.
 - `Effector` : Enter the effector selection mode, similar controls as for the servo selection. You must have a single effector, and it can't be in the middle of the servo "chain".
@@ -43,7 +46,6 @@ This can be done from the `IK Configuration` section :
 - `Learning rate` : The IK algorithm works by trying to move the servos a little bit to see if that new pose is closer or further away from the target. The learning rate is how big those small moves are. Increasing it can greatly help the algorithm to find a solution, but lowering it can be necessary to avoid the solution "jittering" around the target. How that value should be set depends on the chain configuration, it is recommended to do some editor-time testing to tune it.
 
 #### IK Execution Control
-
 
 Once the servos and effector are properly configured, the `Status` label in the `IK Execution Control` tab should show `ready`. That label will also indicate what the IK controller state is when it is active.
 
@@ -68,6 +70,20 @@ Once the servos and effector are properly configured, the `Status` label in the 
 #### IK Target
 Allow to select a part as target, to be used with the `Target` control mode. Like for the effector, you can select an arbitrary node and orientation.
 
+#### Tips and tricks
+
+Often, you will experience your setup starting to spin around or to get stuck, never reaching the target :
+- In most cases, the reason is simply that in the servo configuration you designed, the target position and rotation *can't* be reached. In such situations, EasyRobotics will just keep trying forever. Putting together a kinematic chain for a full 5 or 6 degree of freedom (DoF) manipulator with a lot of reach and no dead zone can be pretty tricky, especially if you're using the Breaking Grounds hinges, as they can only actuate up to a ±90° angle.
+- If you're sure that the kinematic configuration of your servos can actually reach the target, try increasing the `Learning rate` setting.
+- The IK algorithm isn't especially smart, and can easily get stuck in a combination of servo angles from which it can't find a way out. This is usally fixed by using the `Reset all servos positions` option.
+- Try to make manipulators out of as few servos as possible. In theory, a 6-DoF manipulator only require 6 servos, such as is the case for most industrial manipulators. In particular, avoid having multiple servos in close proximity providing the exact same degree of freedom.
+
+Other difficulties will come when using your contraption in flight : 
+- Breaking grounds servo joints aren't very strong, so any attempt at moving them fast will result in a lot of elastic behavior. In flight, the IK controller will try to correct for the position error induced by the various forces acting on the arm (like gravity, accelerations and decelerations...), but in order to do so, it needs all servos to reach a steady state at some point. So it can't do it if everything is wobbling or if the arm is continously moving.
+- The main workaround is to make your servos move slower by limiting their traverse rate. Servos that are near the effector, or whose movement won't displace a lot of mass can move faster. Getting the right settings can be a bit time consuming, especially since the traverse rate can only be assessed in flight.
+- A good workaround in "wobbling" situations is to use the `On request` tracking mode instead of the `Continous` mode, waiting for things to stabilize before hitting the `Request execution` button.
+
 ### Changelog
 
 #### 1.0.0 - 15/05/2024
+- First public release
