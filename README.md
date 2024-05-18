@@ -8,7 +8,7 @@ EasyRobotics is available from the Part Action Window (PAW) for the KAL-1000 par
 
 ### Download and installation
 
-Compatible with **KSP 1.12.3** to **1.12.5**
+Compatible with **KSP 1.12.3** to **1.12.5** - Available on [**CKAN**](https://forum.kerbalspaceprogram.com/topic/197082-ckan-the-comprehensive-kerbal-archive-network-v1332-laplace-ksp-2-support/)
 
 **Manual installation**
 
@@ -24,7 +24,7 @@ MIT
 
 ### Recommended mods
 
-- [**htRobotics**](https://github.com/benjee10/htRobotics) by Benjee : Stockalike Canadarm 1 & 2 parts
+- [**HabTechRobotics**](https://github.com/benjee10/htRobotics) by Benjee : Stockalike Canadarm 1 & 2 parts ([Forum link](https://forum.kerbalspaceprogram.com/topic/133501-112x-bg-habtech2-stockalike-iss-parts-100-the-final-update))
 - [**MissingRobotics**](https://forum.kerbalspaceprogram.com/index.php?/topic/197841-missing-robotics/) by Aahz88 : Various additional robotic parts, including a set of tubes and rotational joints to make manipulators.
 
 ### User manual
@@ -73,7 +73,7 @@ Allow to select a part as target, to be used with the `Target` control mode. Lik
 #### Tips and tricks
 
 Often, you will experience your setup starting to spin around or to get stuck, never reaching the target :
-- In most cases, the reason is simply that in the servo configuration you designed, the target position and rotation *can't* be reached. In such situations, EasyRobotics will just keep trying forever. Putting together a kinematic chain for a full 5 or 6 degree of freedom (DoF) manipulator with a lot of reach and no dead zone can be pretty tricky, especially if you're using the Breaking Grounds hinges, as they can only actuate up to a ±90° angle.
+- In most cases, the reason is simply that in the servo configuration you designed, the target position and rotation *can't* be reached. In such situations, EasyRobotics will just keep trying forever. Putting together a kinematic chain for a full 5 or 6 degree of freedom (DoF) manipulator with a lot of reach and no dead zone can be pretty tricky, especially if you're using the Breaking Grounds hinges, as they can only actuate up to a Â±90Â° angle.
 - If you're sure that the kinematic configuration of your servos can actually reach the target, try increasing the `Learning rate` setting.
 - The IK algorithm isn't especially smart, and can easily get stuck in a combination of servo angles from which it can't find a way out. This is usally fixed by using the `Reset all servos positions` option.
 - Try to make manipulators out of as few servos as possible. In theory, a 6-DoF manipulator only require 6 servos, such as is the case for most industrial manipulators. In particular, avoid having multiple servos in close proximity providing the exact same degree of freedom.
